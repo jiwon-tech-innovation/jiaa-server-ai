@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+service SpeechService {
+  // 스트림으로 데이터를 쏘겠다 선언
+  rpc SendAudioStream (stream AudioRequest) returns (AudioResponse);
+}
+
+// 📦 데이터 박스 모양 정의
+message AudioRequest {
+  bytes audio_data = 1;  // 실제 오디오 (이진수)
+  bool is_final = 2;     // "말 끝났어?" (True/False)
+}
+
+message AudioResponse {
+  string text = 1;       // AI 답변 (STT + Chat 결과)
+}
