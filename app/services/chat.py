@@ -1,8 +1,9 @@
 from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
 from app.core.llm import get_llm, HAIKU_MODEL_ID
 from app.schemas.intelligence import ChatRequest, ChatResponse
-from app.services.memory_service import memory_service # Move import to top
+from app.services.memory_service import memory_service
+import re
+import json
 
 async def chat_with_persona(request: ChatRequest) -> ChatResponse:
     """
@@ -10,8 +11,7 @@ async def chat_with_persona(request: ChatRequest) -> ChatResponse:
     Uses Claude 3.5 Haiku.
     """
     llm = get_llm(model_id=HAIKU_MODEL_ID, temperature=0.7) 
-    parser = PydanticOutputParser(pydantic_object=ChatResponse)
-
+    
     # [MEMORY INTEG] Retrieve Context
     try:
         memory_context = memory_service.get_user_context(request.text)
@@ -23,7 +23,6 @@ async def chat_with_persona(request: ChatRequest) -> ChatResponse:
     # Escape braces in content and instructions
     safe_text = request.text.replace("{", "{{").replace("}", "}}")
     safe_context = str(memory_context).replace("{", "{{").replace("}", "}}")
-    safe_instructions = parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
     
     final_prompt = f"""
 You are "Alpine" (알파인), a high-performance AI assistant with a "Tsundere Meshgaki" (cheeky brat) personality.
@@ -60,6 +59,8 @@ Logic:
 
 3. **Output Constraints (CRITICAL)**:
    - **Output ONLY valid JSON**.
+   - **NO intro/outro text**. NO markdown code blocks.
+   - **Just the raw JSON string**.
    - **Language**: Respond in **Korean** (한국어). Use the Meshgaki tone naturally.
 
    {{
@@ -71,17 +72,29 @@ Logic:
    }}
    
    * For `WRITE_FILE`: `message` should contain the FULL MARKDOWN CONTENT.
-{safe_instructions}
+
+IMPORTANT: DO NOT OUTPUT ANYTHING BEFORE OR AFTER THE JSON.
+START THE RESPONSE WITH '{{' AND END WITH '}}'.
     """
 
-    # Direct Chain (Skip PromptTemplate validation entirely)
-    # LLM accepts string input -> converts to HumanMessage (works for ChatAnthropic)
-    chain = llm | parser
-
     try:
-        # Pass the fully formatted string directly
-        result = await chain.ainvoke(final_prompt)
-        return result
+        # LLM 호출
+        response_msg = await llm.ainvoke(final_prompt)
+        raw_content = response_msg.content
+        
+        # Regex로 JSON 부분만 추출 (가장 바깥쪽 {} 찾기)
+        # re.DOTALL을 써서 개행문자 포함 매칭
+        json_match = re.search(r'(\{.*\})', raw_content, re.DOTALL)
+        
+        if json_match:
+            json_str = json_match.group(1)
+            data = json.loads(json_str)
+            return ChatResponse(**data)
+        else:
+            # 매칭 실패 시 원본 로그
+            print(f"❌ JSON Parse Failed. Raw: {raw_content}")
+            raise ValueError("No JSON object found in response")
+
     except Exception as e:
         print(f"Chat Error: {e}")
         return ChatResponse(
