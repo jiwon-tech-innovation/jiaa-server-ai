@@ -3,9 +3,26 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+from contextlib import asynccontextmanager
+from app.services.memory_service import memory_service
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("Starting JIAA Intelligence Worker (HTTP: 8000, gRPC: 50051)...")
+    yield
+    # Shutdown
+    print("Shutting down... Consolidating Memory...")
+    try:
+        await memory_service.consolidate_memory()
+        print("Memory consolidation complete.")
+    except Exception as e:
+        print(f"Error during shutdown memory consolidation: {e}")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan
 )
 
 @app.get("/")
@@ -24,7 +41,6 @@ if __name__ == "__main__":
     server = uvicorn.Server(config)
 
     async def main():
-        print("Starting JIAA Intelligence Worker (HTTP: 8000, gRPC: 50051)...")
         await asyncio.gather(
             server.serve(),
             serve_grpc()

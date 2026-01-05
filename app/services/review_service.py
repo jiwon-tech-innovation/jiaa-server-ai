@@ -70,34 +70,14 @@ class ReviewService:
             print(f"[ReviewService] LLM Gen Error: {e}")
             markdown_content = f"# Error Generating Blog\\n\\nReason: {e}"
 
-        # 3. Save File
-        # Target: Desktop/JIAA_BLOG/
-        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-        save_dir = os.path.join(desktop_path, "JIAA_BLOG")
-        
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        
-        # Filename logic
-        topic = "DailyLog"
-        if error_log:
-            clean_log = error_log.strip().split('\\n')[0]
-            topic = "".join([c for c in clean_log if c.isalnum()])[:20]
-        
-        filename = f"Blog_{file_date_str}_{topic}.md"
-        full_path = os.path.join(save_dir, filename)
-        
-        try:
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(markdown_content)
-            
-            return {
-                "status": "SAVED", 
-                "file_path": full_path, 
-                "filename": filename
-            }
-        except Exception as e:
-            print(f"[ReviewService] File Save Error: {e}")
-            return {"status": "ERROR", "message": str(e)}
+            print(f"[ReviewService] LLM Gen Error: {e}")
+            markdown_content = f"# Error Generating Blog\\n\\nReason: {e}"
+
+        # 3. Return Content (Cloud-Native: No local file save)
+        return {
+            "status": "GENERATED", 
+            "content": markdown_content,
+            "filename": f"Blog_{file_date_str}.md" 
+        }
 
 review_service = ReviewService()
