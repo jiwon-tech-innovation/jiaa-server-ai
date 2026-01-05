@@ -15,7 +15,7 @@ class BlogResponse(BaseModel):
     status: str
     message: Optional[str] = None
     filename: Optional[str] = None
-    file_path: Optional[str] = None
+    content: Optional[str] = None # Markdown Content
 
 @router.post("/review/blog", response_model=BlogResponse)
 async def create_auto_blog(request: BlogRequest):
@@ -29,12 +29,12 @@ async def create_auto_blog(request: BlogRequest):
         user_id=request.user_id
     )
     
-    if result.get("status") == "SAVED":
+    if result.get("status") == "GENERATED":
         return BlogResponse(
-            status="SAVED",
+            status="GENERATED",
             filename=result.get("filename"),
-            file_path=result.get("file_path"),
-            message="Auto-Blog saved successfully."
+            content=result.get("content"),
+            message="Auto-Blog generated successfully. Please save it locally."
         )
     else:
         return BlogResponse(status="ERROR", message=result.get("message"))
