@@ -56,7 +56,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     intent: str # COMMAND, CHAT
     judgment: str # STUDY, PLAY, NEUTRAL
-    action_code: str # OPEN_APP, NONE, BLOCK_APP
+    action_code: str # OPEN_APP, NONE, BLOCK_APP, MINIMIZE_APP, KILL_APP
     action_detail: Optional[str] = "" # "VSCode"
     message: str # "오, 드디어..."
 
