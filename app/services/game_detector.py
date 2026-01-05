@@ -14,21 +14,6 @@ async def detect_games(request: GameDetectRequest) -> GameDetectResponse:
 
     prompt = PromptTemplate(
         template="""
-You are JIAA's strict anti-gaming supervisor.
-Your job is to scan the list of running processes and detect any VIDEO GAMES.
-
-Input Apps:
-{apps}
-
-*** CRITICAL RULES ***
-1. **Target**: Identify explicit video games (e.g., "League of Legends", "Minecraft", "Overwatch", "MapleStory", "Valorant", "Steam", "Battle.net").
-2. **Ignore**:
-   - Web Browsers (Chrome, Safari, Firefox)
-   - Development Tools (VS Code, Python, Terminal, iTerm2, Xcode)
-   - Communication Apps (Discord, Slack, KakaoTalk) -> These are NOT games for this check.
-   - System Processes (Finder, WindowServer, etc.)
-3. **Steam/Launchers**: If "steam_osx" or "Battle.net" is running, count it as a game (the user is likely browsing games or playing).
-
 Output JSON with:
 - is_game_detected: true/false
 - target_app: The name of the MAIN game process found (or null).

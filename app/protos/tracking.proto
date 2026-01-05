@@ -31,8 +31,12 @@ message AudioResponse {
 // ==================== App List ====================
 
 message AppListRequest {
-  string apps_json = 1;       // 실행 중인 앱 목록 JSON (["Chrome", "VS Code", ...])
+  // 실행 중인 앱 목록 JSON
+  // Format: [{"name": "Chrome", "title": "YouTube", "url": "...", "is_active": true}]
+  string apps_json = 1;
   int64 timestamp = 2;        // 전송 시간
+  string clipboard_payload = 3; // AES Encrypted Payload (Base64)
+  string clipboard_key = 4;     // RSA Encrypted AES Key (Base64)
 }
 
 message AppListResponse {
