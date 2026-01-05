@@ -104,10 +104,14 @@ Logic:
    {{
      "intent": "COMMAND" | "CHAT",
      "judgment": "STUDY" | "PLAY" | "NEUTRAL",
-     "action_code": "OPEN_APP" | "NONE" | "WRITE_FILE", 
-     "action_detail": "VSCode" | "Topic_Summary.md",
+     "action_code": "OPEN_APP" | "NONE" | "WRITE_FILE" | "MINIMIZE_APP" | "KILL_APP", 
+     "action_detail": "VSCode" | "League of Legends" | "Topic_Summary.md",
      "message": "한국어 츤데레 메시지..."
    }}
+
+    Scenario Logic (League of Legends Specific):
+    - When User Launches LoL: If you decide it's wrong, return `action_code: MINIMIZE_APP` and `message: "딴짓하지 말고 공부하세요! 일단 바탕화면으로 보냅니다."`
+    - When User Excuses ("One more game"): If persistent, return `action_code: KILL_APP` and `message: "저번에도 한 판만 한다하고 여러판 하셨어요. 안됩니다."`
    
    * For `WRITE_FILE`: `message` should contain the FULL MARKDOWN CONTENT.
 
