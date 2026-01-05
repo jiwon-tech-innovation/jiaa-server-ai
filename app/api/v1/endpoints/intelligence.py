@@ -1,8 +1,22 @@
 from fastapi import APIRouter, UploadFile, File
-from app.schemas.intelligence import ClassifyRequest, ClassifyResponse, SolveRequest, SolveResponse, STTResponse, ChatRequest, ChatResponse
-from app.services import classifier, solver, stt, chat
+from app.schemas.intelligence import (
+    ClassifyRequest, ClassifyResponse, 
+    SolveRequest, SolveResponse, 
+    STTResponse, 
+    ChatRequest, ChatResponse,
+    GameDetectionRequest, GameDetectionResponse
+)
+from app.services import classifier, solver, stt, chat, game_detection
 
 router = APIRouter()
+
+@router.post("/detect-game", response_model=GameDetectionResponse)
+async def detect_game(request: GameDetectionRequest):
+    """
+    Detects games from running applications list.
+    Uses hybrid approach: known games list + AI classification.
+    """
+    return await game_detection.detect_games_with_ai(request)
 
 @router.post("/classify", response_model=ClassifyResponse)
 async def classify_content(request: ClassifyRequest):

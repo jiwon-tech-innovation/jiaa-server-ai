@@ -60,3 +60,15 @@ class ChatResponse(BaseModel):
     action_detail: Optional[str] = "" # "VSCode"
     message: str # "오, 드디어..."
 
+# Game Detection
+class GameDetectionRequest(BaseModel):
+    apps: List[str]  # 실행 중인 앱 이름 목록
+
+class GameDetectionResponse(BaseModel):
+    detected_games: List[str]  # 감지된 게임 목록
+    is_game_detected: bool  # 게임 감지 여부
+    command: Optional[str] = None  # "KILL" if game detected
+    target_app: Optional[str] = None  # 종료할 앱 이름
+    message: Optional[str] = None  # AI 반응 메시지
+
+
