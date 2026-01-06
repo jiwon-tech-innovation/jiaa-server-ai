@@ -94,3 +94,14 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 5
+
+        volumeMounts:
+        - name: encryption-secret
+          mountPath: /app/server_private.pem
+          subPath: server_private.pem
+          readOnly: true
+
+      volumes:
+      - name: encryption-secret
+        secret:
+          secretName: jiaa-encryption-secret

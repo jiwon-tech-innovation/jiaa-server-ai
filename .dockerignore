@@ -8,3 +8,20 @@ venv/
 env/
 htmlcov/
 .pytest_cache/
+
+# Sensitive Keys (Must be excluded)
+*.pem
+*.key
+
+# Local DB & Artifacts
+chroma_db/
+user_data/
+mock_blog_result.md
+
+# Dev Tools & Tests (Not needed in Prod)
+tools/
+tests/
+k8s/
+*.md
+LICENSE
+Dockerfile

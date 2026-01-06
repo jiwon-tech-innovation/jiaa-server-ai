@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-<<<<<<< HEAD
 from app.api.v1.endpoints import intelligence, prediction, review, memory, game
 
 api_router = APIRouter()

@@ -1,0 +1,76 @@
+# Dev 5 (Server AI) 기능 명세서
+> 작성일: 2026-01-06
+> 작성자: Dev 5 (JIAA Agent)
+
+## 1. 개요 (Overview)
+Dev 5는 JIAA 시스템의 **"두뇌"** 역할을 수행하는 Python Microservice입니다. 사용자 행동 감시, 의사결정, 기억 통합, 보고서 생성을 담당하며, Dev 1(Client) 및 기타 서비스와 상호작용합니다.
+
+---
+
+## 2. 핵심 기능 모듈 (Core Modules)
+
+### A. 감시 및 통제 (Surveillance & Control)
+> **담당 서비스**: [TrackingService](file:///c:/Users/yoons/Downloads/jiaa-springboot-main/jiaa-springboot-main/jiaa-server-ai/app/protos/tracking.proto#8-15), `GameDetector`
+> **상호작용 대상**: **Dev 1 (Desktop Client)**
+
+1.  **수동적 활동 추적 (Passive Tracking)**
+    *   **입력**: 활성화된 창 제목(Window Title), URL, 프로세스 이름.
+    *   **로직**: 사용자의 작업 내용을 `PASSIVE` 카테고리로 InfluxDB `user_activity` 테이블에 기록.
+    *   **목적**: "오늘 하루 뭐 했나"를 증명하는 객관적 데이터 확보 (Triangulation of 'ACTUAL').
+
+2.  **지능형 게임 감지 (AI Game Detection)**
+    *   **1단계 (정적)**: `Overwatch`, `MapleStory` 등 고정된 블랙리스트 즉시 차단.
+    *   **2단계 (동적 AI)**: 처음 보는 앱은 **Claude Haiku**에게 "이거 게임이야?"라고 물어봄.
+    *   **3단계 (학습)**: AI가 게임이라고 판정하면 즉시 **메모리 블랙리스트에 추가**하고 프로세스 종료 명령(`KILL`) 전송.
+    *   **잔소리 기능**: `KILL` 명령 시, AI가 상황에 맞는 비꼬는 말투(Tsundere)로 잔소리 메시지 생성하여 전송.
+
+3.  **클립보드 심층 분석 (Clipboard Analysis)**
+    *   **입력**: 암호화된 클립보드 패킷 (AES Payload + RSA Key).
+    *   **로직**:
+        1.  서버 개인키(Private Key)로 복호화.
+        2.  **Claude Haiku**가 내용 분석 ("이 텍스트의 정체는?").
+        3.  원본 폐기 후 **"분석 요약(Summary)"**만 InfluxDB `user_clipboard`에 저장.
+    *   **목적**: 사용자가 겪고 있는 문제(에러 로그 등)를 파악하여 리포트의 깊이 더하기.
+
+### B. 기억 및 학습 (Memory & Learning)
+> **담당 서비스**: [MemoryService](file:///c:/Users/yoons/Downloads/jiaa-springboot-main/jiaa-springboot-main/jiaa-server-ai/app/services/memory_service.py#7-164)
+> **상호작용 대상**: **System (Graceful Shutdown)**
+
+1.  **기억 통합 (Memory Consolidation)**
+    *   **트리거**: 서버 종료 시그널(`SIGTERM`) 감지 시 또는 정기 스케줄링.
+    *   **로직**:
+        1.  단기 기억(ChromaDB, STM)에 쌓인 하루치 대화/이벤트를 요약.
+        2.  장기 기억(PGVector, LTM)으로 벡터 임베딩하여 이관 (`titan-embed-text-v2`).
+    *   **목적**: 서버가 재시작되어도 사용자에 대한 맥락(Context) 유지.
+
+### C. 컨텐츠 생성 (Content Generation)
+> **담당 서비스**: [ReviewService](file:///c:/Users/yoons/Downloads/jiaa-springboot-main/jiaa-springboot-main/jiaa-server-ai/app/services/review_service.py#8-82), `TistoryService`
+> **상호작용 대상**: **Dev 1 (Client) or User**
+
+1.  **자동 회고록 작성 (Auto-Blog)**
+    *   **입력**: InfluxDB 활동 로그 + 캘린더 일정 + 대화 기록.
+    *   **로직**: "삼각측량(Plan vs Actual vs Said)" 데이터를 종합하여 Markdown 형식의 TIL(Today I Learned) 회고록 생성.
+
+---
+
+## 3. 인터페이스 규격 (Interfaces)
+
+### gRPC (with Dev 1)
+*   **Service**: [TrackingService](file:///c:/Users/yoons/Downloads/jiaa-springboot-main/jiaa-springboot-main/jiaa-server-ai/app/protos/tracking.proto#8-15)
+*   **Methods**:
+    *   [SendAppList(AppListRequest) -> AppListResponse](file:///c:/Users/yoons/Downloads/jiaa-springboot-main/jiaa-springboot-main/jiaa-server-ai/app/protos/tracking.proto#12-14)
+        *   `apps_json`: 실행 중인 앱 목록 (JSON Array).
+        *   `clipboard_payload`: AES로 암호화된 클립보드 본문.
+        *   `clipboard_key`: RSA로 암호화된 AES 키.
+        *   **Response**: `command` (KILL/NONE), `target_app`, `message` (잔소리).
+
+### REST API
+*   `POST /v1/memory/consolidate`: 강제 기억 통합 요청.
+*   `POST /v1/review/blog`: 일일 회고 블로그 포스트 생성 요청.
+
+---
+
+## 4. 보안 아키텍처 (Security)
+*   **암호화**: 클립보드 데이터 전송 시 **AES-256 + RSA-2048 하이브리드 암호화** 사용.
+*   **비식별화**: 클립보드 원본은 분석 후 즉시 폐기하며, DB에는 메타데이터(요약)만 저장.
+*   **키 관리**: RSA 개인키(`server_private.pem`)는 서버 내부에만 보관.
