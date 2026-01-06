@@ -10,6 +10,16 @@ class MemoryService:
         self.stm = get_vector_store()
         # LTM: Long-Term Memory (PGVector)
         self.ltm = get_long_term_store()
+        
+        # [INIT CHECK] Ensure Redis Index Exists
+        try:
+            self.stm.similarity_search("genesis", k=1)
+        except Exception as e:
+            if "No such index" in str(e):
+                print("DEBUG: Redis Index not found. Creating Genesis Block...")
+                self._save_event("Genesis Block: Memory Initialized.", "SYSTEM_INIT")
+            else:
+                print(f"WARNING: Unknown Redis Error during init: {e}")
 
     def _save_event(self, content: str, event_type: str, metadata: dict = None):
         """
