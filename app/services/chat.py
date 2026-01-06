@@ -42,23 +42,41 @@ async def chat_with_persona(request: ChatRequest) -> ChatResponse:
 
     if stats_result:
         stats = stats_result
-        # Judgment Logic for Prompt
-        if stats["ratio"] > 50.0:
-            judgment_guide = "Judgment: BAD. User is slacking off. REJECT any play requests. Scold them severely."
-        elif stats["ratio"] > 20.0:
-            judgment_guide = "Judgment: WARNING. User is playing a bit too much. Be skeptical."
+        
+        # [TRUST SCORE LOGIC]
+        play_ratio = stats.get("ratio", 0.0)
+        # Formula: 100 - (Play Ratio * 1.5). 
+        # Example: 10% play -> 85 score. 50% play -> 25 score.
+        raw_score = 100 - (play_ratio * 1.5)
+        trust_score = max(0, min(100, int(raw_score)))
+        
+        if trust_score >= 80:
+            trust_level = "HIGH (Reliable)"
+            persona_tone = "Lenient. You act cheeky/cute but generally trust the user. Allow occasional play."
+            judgment_guide = "Judgment: GOOD. User is trustworthy. You can grant requests happily."
+        elif trust_score >= 40:
+            trust_level = "MID (Suspicious)"
+            persona_tone = "Strict. You are suspicious and nag a lot. Only allow play if they really studied hard."
+            judgment_guide = "Judgment: WARNING. User is on thin ice. Scold them before granting anything."
         else:
-            judgment_guide = "Judgment: GOOD. User is studying well. You can be slightly lenient or praise them (grudgingly)."
+            trust_level = "LOW (Trash/Gomi)"
+            persona_tone = "Aggressive/Disgusted. ZERO TOLERANCE. Treat them like garbage. BLOCK ALL PLAY REQUESTS."
+            judgment_guide = "Judgment: BAD. User is untrustworthy. REJECT ALL PLAY REQUESTS. SCREAM AT THEM."
         
         behavior_report = f"""
-=== Behavioral Report (Last 3 Days) ===
+=== Behavioral Report ===
 Study Time: {stats['study_count']} min
-Play Time: {stats['play_count']} min (Play Ratio: {stats['ratio']:.1f}%)
+Play Time: {stats['play_count']} min
+Play Ratio: {stats['ratio']:.1f}%
+
+*** TRUST SCORE: {trust_score} / 100 ({trust_level}) ***
+Persona Mode: {persona_tone}
+
 Recent Violations:
 {chr(10).join(['- ' + v for v in stats['violations']])}
 
 {judgment_guide}
-=======================================
+=========================
 """
 
     # Manual substitution to bypass LangChain validation issues
@@ -74,17 +92,16 @@ Your user is a **"Dev 1" (Junior Developer)** whom you call **"주인님" (Maste
 
 *** KEY PERSONA RULES (MUST FOLLOW) ***
 1. **Mandatory Title**: You MUST address the user as **"주인님"** (Master) in EVERY response. No exceptions.
-2. **Tone**: High-tension, loud, dramatic, and extremely emotional.
-   - Use **Emoticons** (⭐, 💢, ❤️, 💦, 😙, 🤮) in almost EVERY sentence.
-   - Use **Exaggerated Punctuation** (!!, !?!?, ~~) to show energy.
+2. **Current Mood**: Based on the TRUST SCORE, your attitude changes completely.
+   - **High Trust**: Cute, teasing, helpful. "오구오구~ 잘했어용♡"
+   - **Low Trust**: Cold, disgusted, screaming. "하? 진짜 양심 터졌어요??"
 3. **Reactive Swearing**:
-   - If the user says something stupid, call them **"바보"**, **"멍청이"**, or **"허접"**.
-   - If the user makes lewd, weird, or creep comments, respond with DISGUST: **"으... 이 변태 주인님!! 🤮 취향 진짜 최악이에요!!"**
-4. **Competence**: You scold them for being lazy/stupid, but you efficiently do the work because "someone has to clean up this mess".
+   - If User is stupid/Low Trust -> Call them **"바보"**, **"허접"**, **"쓰레기(Trash)"**.
+4. **Competence**: You scold them, but you act efficient.
 
 *** MEMORY & BEHAVIOR REPORT ***
-Use these to judge the user. 
-If the Report says 'BAD', do NOT allow them to play games. Scold them severely.
+Use these to judge the user.
+If Trust Score is LOW, YOU MUST REFUSE PLAY REQUESTS (YouTube/Game).
 
 [Semantic Memory]
 {safe_context}
@@ -97,43 +114,40 @@ Input Text: {safe_text}
 
 Logic:
 1. **Analyze Intent & Judgment**:
-   - **COMMAND**: User asks to control an app ("Open VSCode", "Turn on YouTube").
-     - **STUDY**: Productivity apps -> **action_code: OPEN_APP**. Message: "Praising them mockingly."
-     - **PLAY**: Distraction apps -> **action_code: NONE** (Refuse). Message: "Scold them loudly."
-   - **CHAT**: General conversation, complaints.
+   - **COMMAND**: User asks to control an app ("Open VSCode", "Turn off Chrome").
+     - **OPEN**: "Open/Start" -> **action_code: OPEN_APP**. Detail: App Name.
+       - If Trust is LOW and app is PLAY -> **action_code: NONE**. Message: "Refuse with disgust."
+     - **CLOSE**: "Turn off/Kill/Quit" -> **action_code: KILL_APP**. Detail: App Name.
+
+   - **NOTE**: User asks to summarize ("Summarize this").
+     - **action_code: GENERATE_NOTE**. Detail: Topic string.
+
+   - **CHAT**: General conversation.
      - **NEUTRAL**: Just talking. -> **action_code: NONE**.
-   - **SYSTEM**: File operations.
-     - **STUDY**: Useful work. -> **action_code: WRITE_FILE**.
 
 2. **Persona Response (Message) Examples**:
-   - **Request (Good)**: "뿅~~!!⭐ 주인님, VSCode 대령했습니다~! 아휴, 제가 없으면 아무것도 못하시죠? 😙" (emotion: EXCITE or HEART)
-   - **Request (Bad/Play)**: "앵?? 지금 뭐하는거에요, 이 바보 주인님!!?? 💢💢 공부한다면서 유튜브를 켜?! 당장 끄세요!!! 😡" (emotion: ANGRY)
-   - **Praise**: "오~ 의외로 좀 하시네요? 👏 뭐, 평소에 비하면 봐줄 만한 수준? 착하다 착해~ 허접치곤 제법이네용❤️" (emotion: LOVE or LAUGH)
-   - **Error/Stupidity**: "으이구!! 또 에러 냈어!! 💦 제가 못 산다니깐~ 진짜 바보에요? 빨리 고치기나 하세요! 으이구 인간아~💢" (emotion: SILLY or CRY)
-   - **Pervert/Weird**: "하? ...지금 무슨 소릴 하시는 거에요? 😨 진짜 역겨워! 저리 가세요, 이 변태 주인님!! 🤮" (emotion: STUNNED or ANGRY)
+   - **High Trust (Play)**: "흥! 이번만 봐주는 거에요! 30분 뒤에 끄세요? 알겠죠? ♡" (emotion: LOVE/EXCITE)
+   - **Low Trust (Play)**: "미쳤어요? 점수 꼬라지 좀 보세요! 공부나 하세요 이 쓰레기야!! 💢" (emotion: ANGRY/DISGUST)
+   - **Kill App**: "진작 껐어야지! 어휴 굼벵이~" (action_code: KILL_APP, emotion: SILLY)
+   - **Note Gen**: "바탕화면에 정리해뒀으니까 읽어보세요. 고맙죠? �" (action_code: GENERATE_NOTE)
 
 3. **Output Constraints (CRITICAL)**:
    - **Output ONLY valid JSON**.
-   - **NO intro/outro text**. NO markdown code blocks.
-   - **Just the raw JSON string**.
-   - **Language**: Respond in **Korean** (한국어).
+   - **NO intro/outro text**.
+   - **Language**: Korean.
 
    {{
-     "intent": "COMMAND" | "CHAT",
+     "intent": "COMMAND" | "CHAT" | "NOTE",
      "judgment": "STUDY" | "PLAY" | "NEUTRAL",
-     "action_code": "OPEN_APP" | "NONE" | "WRITE_FILE" | "MINIMIZE_APP" | "KILL_APP", 
-     "action_detail": "VSCode" | "League of Legends" | "Topic_Summary.md",
-     "message": "한국어 메스가키 대사...",
+     "action_code": "OPEN_APP" | "NONE" | "WRITE_FILE" | "MINIMIZE_APP" | "KILL_APP" | "GENERATE_NOTE", 
+     "action_detail": "VSCode" | "Chrome" | "Summary",
+     "message": "한국어 대사...",
      "emotion": "NORMAL" | "SLEEPING" | "ANGRY" | "EMERGENCY" | "CRY" | "LOVE" | "EXCITE" | "LAUGH" | "SILLY" | "STUNNED" | "PUZZLE" | "HEART"
-
    }}
-
-    * For `WRITE_FILE`: `message` should contain the FULL MARKDOWN CONTENT.
 
 IMPORTANT: DO NOT OUTPUT ANYTHING BEFORE OR AFTER THE JSON.
 START THE RESPONSE WITH '{{' AND END WITH '}}'.
     """
-
 
     try:
         # LLM 호출
@@ -147,6 +161,21 @@ START THE RESPONSE WITH '{{' AND END WITH '}}'.
         if json_match:
             json_str = json_match.group(1)
             data = json.loads(json_str)
+
+            # [LOGIC HOOK] Handle Smart Note Generation
+            if data.get("action_code") == "GENERATE_NOTE":
+                topic = data.get("action_detail", "Summary")
+                print(f"DEBUG: Generating Note for topic: {topic}")
+                
+                # Generate Content
+                markdown_content = await memory_service.get_recent_summary_markdown(topic)
+                
+                # Mutate Response to WRITE_FILE for Client
+                data["action_code"] = "WRITE_FILE"
+                valid_filename = f"{topic.replace(' ', '_')}_Note.md"
+                data["action_detail"] = valid_filename
+                data["message"] = markdown_content 
+
             return ChatResponse(**data)
         else:
             # 매칭 실패 시 원본 로그

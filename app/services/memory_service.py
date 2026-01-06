@@ -162,4 +162,34 @@ class MemoryService:
         except Exception as e:
             print(f"ERROR: Consolidation Failed: {e}")
 
+    async def get_recent_summary_markdown(self, topic: str) -> str:
+        """
+        Generates a Markdown summary for a specific topic based on recent memories.
+        Used for 'Smart Note' feature.
+        """
+        context_docs = self.stm.similarity_search(topic, k=10)
+        if not context_docs:
+            return f"# {topic}\n\n(No recent context found for this topic.)"
+        
+        context_text = "\n".join([f"- {d.page_content}" for d in context_docs])
+        
+        llm = get_llm(model_id=HAIKU_MODEL_ID)
+        prompt = f"""
+        You are a helpful technical assistant.
+        Write a clean, structured Markdown note about the topic: "{topic}".
+        Use the provided context logs/memory to fill in details.
+        
+        Context:
+        {context_text}
+        
+        Output Format:
+        # [Topic]
+        ## Summary
+        ## Key Points
+        - ...
+        """
+        
+        response = await llm.ainvoke(prompt)
+        return response.content
+
 memory_service = MemoryService()
