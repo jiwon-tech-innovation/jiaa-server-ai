@@ -85,17 +85,25 @@ Input Context:
 {content}
 
 *** CRITICAL RULES (No Input Metrics) ***
-1. **Process Analysis**:
-   - `idea64.exe`, `Code.exe`, `pycharm64.exe` -> **STUDY** (Coding).
-   - `Discord.exe`, `KakaoTalk.exe` -> **PLAY** (Communication).
-   - `League of Legends.exe`, `Steam.exe` -> **PLAY** (Games).
-   - `chrome.exe` -> Depends on Title.
+   - `idea`, `idea64`, `Code`, `pycharm` -> **STUDY** (Coding).
+   - `Discord`, `KakaoTalk` -> **PLAY** (Communication).
+   - `LeagueClient`, `Steam`, `MapleStory` -> **PLAY** (Games).
+   - `Google Chrome`, `Chrome`, `msedge` -> Depends on Title.
 
 2. **Window Title Analysis (Active Window)**:
+   - **WEB GAME DETECTION (HIGH PRIORITY)**:
+     - Title contains ".io" (e.g., "agar.io", "slither.io") -> **PLAY**.
+     - Title contains "Game", "Play", "Nexon", "Netmarble" -> **PLAY**.
+     - Title contains "RPG", "Online" (without "Course"/"Lecture") -> **PLAY**.
    - "YouTube" + Title "Spring Boot" -> **STUDY**.
    - "YouTube" + Title "Funny Video" -> **PLAY**.
-   - "StackOverflow", "GitHub", "Docs" -> **STUDY**.
-   - "Netflix", "Shopping" -> **PLAY**.
+   - "StackOverflow", "GitHub", "Docs", "ChatGPT", "Claude" -> **STUDY**.
+   - **KOREAN CODING SITES (STUDY)**:
+     - "Baekjoon", "acmicpc", "백준" -> **STUDY**.
+     - "Codeit", "코드잇" -> **STUDY**.
+     - "Programmers", "프로그래머스" -> **STUDY**.
+     - "Inflearn", "인프런", "Udemy" -> **STUDY**.
+   - "Netflix", "Shopping", "Twitch", "Chzzk" -> **PLAY**.
 
 Output 'confidence' (0.0-1.0).
 Output 'result' (STUDY/PLAY).

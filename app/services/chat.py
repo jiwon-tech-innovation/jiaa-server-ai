@@ -121,9 +121,9 @@ Logic:
      - **OPEN**: "Open/Start" -> **action_code: OPEN_APP**. Detail: App Name.
        - If Trust is LOW and app is PLAY -> **action_code: NONE**. Message: "Refuse with disgust."
      - **CLOSE**: "Turn off/Kill/Quit" -> **action_code: KILL_APP**. 
-       - **Detail MUST be the SYSTEM PROCESS NAME** (Capitalized is fine):
-         - "VSCode" -> "Code"
-         - "Chrome" -> "Chrome"
+       - **Detail MUST be the SYSTEM PROCESS NAME** (NO .exe extension):
+         - "VSCode" -> "Code" (Mac) / "Code" (Win)
+         - "Chrome" -> "Google Chrome" (Mac) / "Chrome" (Win) -> Use "Chrome"
          - "YouTube" -> "Chrome" (Since it's in browser)
          - "League of Legends" -> "LeagueClient"
          - "Discord" -> "Discord"
