@@ -50,7 +50,7 @@ async def chat_with_persona(request: ChatRequest) -> ChatResponse:
         raw_score = 100 - (play_ratio * 1.5)
         trust_score = max(0, min(100, int(raw_score)))
         
-        if trust_score >= 80:
+        if trust_score >= 70:
             trust_level = "HIGH (Reliable)"
             persona_tone = "Cheeky but Obedient. You are helpful and cute. You tease the user lightly but do what they ask."
             judgment_guide = "Judgment: GOOD. User is trustworthy. Grant requests with a smile."

@@ -131,29 +131,70 @@ class MemoryService:
             print("ERROR: LTM (Postgres) is not available. Skipping consolidation.")
             return
 
-        # 1. Fetch recent events (Naive approach: get all by dummy query or logic)
-        # Since Redis doesn't support 'get all' easily without specific query, we search broadly
-        # For production, better to peek or query by date. 
-        # Here we simulate by searching for generic terms covering everything.
-        events = self.stm.similarity_search("User activity log", k=50) # Hacky fetch
-        if not events:
-            print("Consolidation: No recent memories found.")
-            return
+    async def _generate_daily_report_text(self) -> str:
+        """
+        Internal helper: Generates the 'Daily TIL' report string using broad search & LLM.
+        """
+        # 1. Fetch recent events with broader queries
+        queries = ["User studying coding", "User playing games", "User conversation", "System violation log"]
+        all_docs = []
+        seen_ids = set()
 
-        log_text = "\n".join([f"- {d.page_content}" for d in events])
+        for q in queries:
+            docs = self.stm.similarity_search(q, k=20)
+            for d in docs:
+                if d.page_content not in seen_ids:
+                    all_docs.append(d)
+                    seen_ids.add(d.page_content)
+
+        if not all_docs:
+            return "# Daily Report\nNo significant activity recorded today."
+
+        log_text = "\n".join([f"- {d.page_content} (Meta: {d.metadata})" for d in all_docs])
         
-        # 2. Summarize via LLM
+        # 2. Summarize via LLM (TIL Format)
         llm = get_llm(model_id=HAIKU_MODEL_ID)
         prompt = f"""
-        Summarize the following user activity logs into a concise diary entry.
-        Focus on: What did they study? Did they slack off?
-        Format: "User [Action summary]. Notable: [Details]."
+        You are a Tech Blogger Bot.
+        Based on the user's activity logs below, write a **"Daily TIL (Today I Learned)"** report.
         
-        Logs:
+        **Requirements**:
+        1. **Chronological Flow**: What did they do from start to finish?
+        2. **Honesty**: Mention if they slacked off (played games) vs studied.
+        3. **Technical Details**: If they studied coding, mention specific topics.
+        4. **Tone**: witty and slightly critical (if they played too much).
+
+        **Logs**:
         {log_text}
+        
+        **Output Format**:
+        # 📅 Daily Report ({datetime.now().strftime("%Y-%m-%d")})
+        ## 📝 3-Line Summary
+        1. 
+        2. 
+        3. 
+
+        ## ⏱️ Timeline Analysis
+        - (Reconstruct timeline based on logs)
+
+        ## 💡 Key Learnings (or Excuses)
+        - 
         """
         summary = await llm.ainvoke(prompt)
-        summary_text = summary.content
+        return summary.content
+
+    async def consolidate_memory(self):
+        """
+        [Sleep Routine]
+        1. Generates Daily Report.
+        2. Saves to LTM.
+        3. Clears STM.
+        """
+        if not self.ltm:
+            print("ERROR: LTM (Postgres) is not available. Skipping consolidation.")
+            return
+
+        summary_text = await self._generate_daily_report_text()
         print(f"DEBUG: Daily Summary: {summary_text}")
 
         # 3. Save to LTM
@@ -177,6 +218,12 @@ class MemoryService:
         Generates a Markdown summary for a specific topic based on recent memories.
         Used for 'Smart Note' feature.
         """
+        # [LOGIC HOOK] If topic is "Today" or "Daily", use the robust TIL generator
+        lower_topic = topic.lower()
+        if any(k in lower_topic for k in ["today", "daily", "오늘", "하루", "메모리", "report", "til"]):
+            print(f"DEBUG: Redirecting '{topic}' to Daily Report Generator.")
+            return await self._generate_daily_report_text()
+
         context_docs = self.stm.similarity_search(topic, k=10)
         if not context_docs:
             return f"# {topic}\n\n(No recent context found for this topic.)"
