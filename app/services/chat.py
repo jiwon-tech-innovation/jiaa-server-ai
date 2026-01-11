@@ -35,10 +35,34 @@ async def chat_with_persona(request: ChatRequest) -> ChatResponse:
             print(f"DEBUG: Stats Unavailable: {e}")
             return None
 
-    # Run in parallel
-    results = await asyncio.gather(get_memory(), get_stats())
-    memory_context = results[0]
-    stats_result = results[1]
+    # Run in parallel with strict timeout
+    import time
+    start_context = time.time()
+    
+    # 0.7s timeout for stats (Fast Fail)
+    try:
+        stats_task = asyncio.create_task(get_stats())
+        memory_task = asyncio.create_task(get_memory())
+        
+        # We wait for stats with timeout. Memory is less critical? Or both?
+        # Let's wait for both with timeout.
+        results = await asyncio.wait_for(asyncio.gather(memory_task, stats_task), timeout=0.7)
+        memory_context = results[0]
+        stats_result = results[1]
+    except asyncio.TimeoutError:
+        print("⏱️ [Perf] Context/Stats Fetch TIMED OUT (0.7s limit). Using defaults.")
+        memory_context = ""
+        stats_result = None
+    except Exception as e:
+        print(f"⏱️ [Perf] Context/Stats Fetch Async Error: {e}")
+        memory_context = ""
+        stats_result = None
+
+    context_duration = time.time() - start_context
+    print(f"⏱️ [Perf] Context/Stats Fetch: {context_duration:.2f}s")
+    
+    # [UPDATE] Reset Silence Timer
+    memory_service.update_interaction_time()
 
     if stats_result:
         stats = stats_result
@@ -161,7 +185,11 @@ START THE RESPONSE WITH '{{' AND END WITH '}}'.
 
     try:
         # LLM 호출
+        start_llm = time.time()
         response_msg = await llm.ainvoke(final_prompt)
+        llm_duration = time.time() - start_llm
+        print(f"⏱️ [Perf] LLM Generation: {llm_duration:.2f}s")
+        
         raw_content = response_msg.content
         
         # Regex로 JSON 부분만 추출 (가장 바깥쪽 {} 찾기)

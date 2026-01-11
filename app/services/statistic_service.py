@@ -31,8 +31,16 @@ class StatisticService:
               |> sum()
             '''
             
-            # Execute Sync Query (Blocking, but okay for low load)
-            tables = query_api.query(org=org, query=flux_query)
+            # Execute Sync Query in Thread Pool to avoid blocking Event Loop
+            import asyncio
+            loop = asyncio.get_running_loop()
+            
+            # Use partial to pass arguments to the sync function
+            from functools import partial
+            tables = await loop.run_in_executor(
+                None, 
+                partial(query_api.query, org=org, query=flux_query)
+            )
             
             study_min = 0
             play_min = 0
@@ -61,7 +69,10 @@ class StatisticService:
               |> sort(columns: ["_time"], desc: true)
               |> limit(n: 3)
             '''
-            viol_tables = query_api.query(org=org, query=viol_query)
+            viol_tables = await loop.run_in_executor(
+                None,
+                partial(query_api.query, org=org, query=viol_query)
+            )
             violations = []
             for table in viol_tables:
                 for record in table.records:
