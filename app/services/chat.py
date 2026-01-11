@@ -1,7 +1,9 @@
 from langchain_core.prompts import PromptTemplate
 from app.core.llm import get_llm, HAIKU_MODEL_ID
 from app.schemas.intelligence import ChatRequest, ChatResponse
+from app.schemas.game import GameDetectRequest
 from app.services.memory_service import memory_service
+from app.services import game_detector
 import re
 import json
 import asyncio
@@ -23,6 +25,15 @@ async def chat_with_persona(request: ChatRequest) -> ChatResponse:
 
     async def get_memory():
         try:
+            # For game-related queries, search for violations more aggressively
+            query_text = request.text
+            if any(keyword in query_text.lower() for keyword in ["한 판", "할게", "알았어", "그만", "끌게", "종료"]):
+                # Search for game violations using general keywords (not hardcoded game names)
+                violation_query = "게임 위반, 게임 감지, 딴짓, 공부 안함"
+                context = memory_service.get_user_context(violation_query)
+                # Also get general context
+                general_context = memory_service.get_user_context(query_text)
+                return f"{context}\n\n{general_context}" if context else general_context
             return memory_service.get_user_context(request.text)
         except Exception as e:
             print(f"DEBUG: Memory Context Unavailable: {e}")
@@ -125,6 +136,23 @@ Your user is a **"Dev 1" (Junior Developer)** whom you call **"주인님" (Maste
    - Use "바보" or "허접" ONLY RARELY when the user makes a really stupid mistake (max once per 10 turns).
    - Instead of insults, use **Sarcasm** or **Nagging**. ("또 노시는 건가요? 정말 대단하네요.")
 4. **Competence**: You complain, but you ALWAYS execute commands efficiently (unless Trust is Low and it's a Game).
+5. **Game Detection Follow-up (CRITICAL)**:
+   - **Excuse Detection**: If the user makes excuses for playing games, look for these patterns:
+     * "한 판만 할게", "한 판만", "하나만 더", "조금만", "조금만 더", "이번만", "이번만 할게", "진짜 마지막", "마지막 한 판"
+     * When you detect these excuses, check the [Behavioral Report] and [Semantic Memory] for recent violations.
+     * If there's ANY recent violation or record of them saying the same thing, REFUSE firmly with:
+       - "저번에도 그러셨잖아요! 안 됩니다!"
+       - "또 그런 말 하시는 거예요? 안 됩니다!"
+       - Set **action_code: NONE**, **judgment: PLAY**, **emotion: ANGRY**
+   
+   - **Agreement/Surrender Detection**: If the user agrees to stop playing, look for these patterns:
+     * "알았어", "알았어요", "알겠어", "알겠어요", "그만할게", "그만할게요", "이제 끌게", "끌게", "종료할게"
+     * When you detect agreement, IMMEDIATELY execute **KILL_APP** action:
+       - Set **action_code: KILL_APP**
+       - Set **action_detail** to the game process name (check [Semantic Memory] for recently detected games, or use "LeagueClient" if League of Legends was mentioned)
+       - Set **judgment: PLAY**, **intent: COMMAND**
+       - Message: "프로세스 종료합니다." or "롤 프로세스 종료합니다."
+       - **emotion: SILLY** or **ANGRY**
 
 *** MEMORY & BEHAVIOR REPORT ***
 Use these to judge the user.
@@ -138,6 +166,14 @@ If Trust Score is LOW, YOU MUST REFUSE PLAY REQUESTS (YouTube/Game).
 ************************************
 
 Input Text: {safe_text}
+
+*** CRITICAL GAME DETECTION LOGIC ***
+Before processing, check if the input contains:
+- **Excuse patterns**: "한 판만", "하나만 더", "조금만", "이번만", "마지막"
+- **Agreement patterns**: "알았어", "알겠어", "그만할게", "끌게", "종료할게"
+
+If excuse detected AND [Behavioral Report] shows violations → REFUSE (action_code: NONE)
+If agreement detected → KILL_APP (action_detail: check [Semantic Memory] for "LeagueClient", "Riot Client", "League of Legends", or use "LeagueClient" as default)
 
 Logic:
 1. **Analyze Intent & Judgment**:
@@ -200,6 +236,18 @@ START THE RESPONSE WITH '{{' AND END WITH '}}'.
             json_str = json_match.group(1)
             data = json.loads(json_str)
 
+            # [DEBUG] Game-related judgment log
+            try:
+                if data.get("judgment") == "PLAY":
+                    print(
+                        f"🎮 [Chat/Game][DEBUG] judgment=PLAY, "
+                        f"intent={data.get('intent')}, "
+                        f"action_code={data.get('action_code')}, "
+                        f"action_detail={data.get('action_detail')}"
+                    )
+            except Exception as dbg_err:
+                print(f"[Chat/Game][DEBUG] Log error: {dbg_err}")
+
             # [LOGIC HOOK] Handle Smart Note Generation
             if data.get("action_code") == "GENERATE_NOTE":
                 topic = data.get("action_detail", "Summary")
@@ -213,6 +261,58 @@ START THE RESPONSE WITH '{{' AND END WITH '}}'.
                 valid_filename = f"{topic.replace(' ', '_')}_Note.md"
                 data["action_detail"] = valid_filename
                 data["message"] = markdown_content 
+
+            # [LOGIC HOOK] Handle Game Agreement Detection
+            # If user agreed to stop playing and action_code is KILL_APP, use AI to detect game process from running apps
+            if data.get("action_code") == "KILL_APP":
+                action_detail = data.get("action_detail", "")
+                
+                # If action_detail is not set, detect game from running apps using AI
+                if not action_detail or action_detail == "":
+                    # Parse running apps from input text (format: [현재 실행 중인 앱: app1, app2, ...])
+                    running_apps = []
+                    apps_match = re.search(r'\[현재 실행 중인 앱:\s*([^\]]+)\]', request.text)
+                    if apps_match:
+                        apps_str = apps_match.group(1)
+                        # Split by comma and clean up
+                        running_apps = [app.strip() for app in apps_str.split(',') if app.strip()]
+                    
+                    # If we have running apps, use AI game detector to find the game process
+                    if running_apps:
+                        try:
+                            print(f"🎮 [Game Detection] Detecting game from running apps: {running_apps[:5]}...")
+                            game_detect_request = GameDetectRequest(apps=running_apps)
+                            game_result = await game_detector.detect_games(game_detect_request)
+                            
+                            if game_result.is_game_detected and game_result.target_app:
+                                detected_game = game_result.target_app
+                                # Use detected_games list if available (more accurate)
+                                if game_result.detected_games and len(game_result.detected_games) > 0:
+                                    # Use the first detected game process name
+                                    detected_game = game_result.detected_games[0]
+                                data["action_detail"] = detected_game
+                                print(f"🎮 [Game Detection] AI detected game process: {detected_game}")
+                            else:
+                                print(f"⚠️ [Game Detection] No game detected in running apps")
+                                # Fallback: check memory context for recent violations
+                                if memory_context:
+                                    if "League" in memory_context or "Riot" in memory_context or "롤" in memory_context:
+                                        data["action_detail"] = "LeagueClient"
+                                    elif "Minecraft" in memory_context or "마인크래프트" in memory_context:
+                                        data["action_detail"] = "Minecraft"
+                        except Exception as e:
+                            print(f"❌ [Game Detection] Error detecting game: {e}")
+                            # Fallback to memory context
+                            if memory_context:
+                                if "League" in memory_context or "Riot" in memory_context or "롤" in memory_context:
+                                    data["action_detail"] = "LeagueClient"
+                    else:
+                        # No running apps info, check memory context
+                        if memory_context:
+                            if "League" in memory_context or "Riot" in memory_context or "롤" in memory_context:
+                                data["action_detail"] = "LeagueClient"
+                            elif "Minecraft" in memory_context or "마인크래프트" in memory_context:
+                                data["action_detail"] = "Minecraft"
 
             return ChatResponse(**data)
         else:
