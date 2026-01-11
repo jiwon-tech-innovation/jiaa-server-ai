@@ -52,7 +52,12 @@ class AudioService(audio_pb2_grpc.AudioServiceServicer):
         print(f"🎤 [Server] Audio Received: {len(audio_buffer)} bytes. Context: {final_media_info}")
 
         # 1. STT
+        import time
+        start_stt = time.time()
         stt_response = await stt.transcribe_bytes(bytes(audio_buffer), file_ext="mp3")
+        stt_duration = time.time() - start_stt
+        print(f"⏱️ [Perf] STT Duration: {stt_duration:.2f}s")
+        
         user_text = stt_response.text
         
         # 🎤 로그: 사용자가 말한 내용 출력
