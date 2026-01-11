@@ -348,6 +348,25 @@ async def serve_grpc():
     )
     server.add_generic_rpc_handlers((generic_handler_tracking,))
     
+    # 4. TextAIService 등록 (New Goal Planner)
+    from app.protos import text_ai_pb2, text_ai_pb2_grpc
+    from app.services import planner
+    
+    class TextAIService(text_ai_pb2_grpc.TextAIServiceServicer):
+        async def GenerateSubgoals(self, request, context):
+            print(f"📝 [Planner] Generating subgoals for: {request.goal_text}")
+            subgoals = await planner.generate_subgoals(request.goal_text)
+            print(f"✅ [Planner] Result: {subgoals}")
+            return text_ai_pb2.GoalResponse(subgoals=subgoals)
+
+    text_ai_servicer = TextAIService()
+    
+    # Register purely via add_TextAIServiceServicer_to_server if using standard flow
+    # or generic handler like others. Let's use the standard way if generated code allows,
+    # but based on previous pattern, we might want generic handler if reflection is issues.
+    # However, standard way is cleaner.
+    text_ai_pb2_grpc.add_TextAIServiceServicer_to_server(text_ai_servicer, server)
+
     generic_handler = grpc.method_handlers_generic_handler(
         'jiaa.IntelligenceService', 
         rpc_method_handlers
@@ -361,6 +380,8 @@ async def serve_grpc():
     print("Services:")
     print("  - AudioService (Dev 1 → Dev 5)")
     print("  - IntelligenceService (Dev 4 → Dev 5)")
+    print("  - TrackingService (Dev 6 → Dev 5)")
+    print("  - TextAIService (Client → Dev 5)")
     print("=" * 50)
     
     await server.start()
