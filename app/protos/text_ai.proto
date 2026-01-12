@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package jiaa.text;
+
+option java_multiple_files = true;
+option java_package = "com.jiaa.text";
+
+// TextAIService handles text-based AI operations
+service TextAIService {
+  // Break down a complex goal into smaller sub-tasks
+  rpc GenerateSubgoals (GoalRequest) returns (GoalResponse);
+}
+
+message GoalRequest {
+  string goal_text = 1; // e.g. "Make a todo app"
+}
+
+message GoalResponse {
+  repeated string subgoals = 1; // e.g. ["Setup React", "Configure Node.js"]
+}

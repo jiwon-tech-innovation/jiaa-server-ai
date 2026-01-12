@@ -27,3 +27,4 @@ google-auth>=2.0.0
 aiokafka>=0.10.0
 pgvector
 pycryptodome>=0.2.0
+duckduckgo-search>=5.0.0

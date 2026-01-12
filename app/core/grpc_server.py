@@ -73,8 +73,29 @@ class AudioService(audio_pb2_grpc.AudioServiceServicer):
             )
 
         # 2. Chat (Tsundere Response)
-        chat_request = ChatRequest(text=user_text)
-        # TODO: Pass context to Chat if supported
+        # Pass running apps context if available for game detection
+        user_text_with_context = user_text
+        running_apps_list = []
+        if final_media_info.get("windows"):
+            try:
+                windows = final_media_info["windows"]
+                if isinstance(windows, list) and len(windows) > 0:
+                    # Extract app names (remove browser titles like "Google Chrome - [title]")
+                    running_apps_list = []
+                    for app in windows[:20]:  # Limit to first 20 apps
+                        # Remove browser title suffixes
+                        app_name = app.split(" - ")[0].strip()
+                        if app_name and app_name not in running_apps_list:
+                            running_apps_list.append(app_name)
+                    
+                    # Add context about running apps to help identify games
+                    apps_context = ", ".join(running_apps_list)
+                    user_text_with_context = f"{user_text} [현재 실행 중인 앱: {apps_context}]"
+                    print(f"📱 [Context] Running apps ({len(running_apps_list)}): {apps_context[:100]}...")
+            except Exception as e:
+                print(f"⚠️ [Context] Failed to parse windows: {e}")
+        
+        chat_request = ChatRequest(text=user_text_with_context)
         chat_response = await chat.chat_with_persona(chat_request)
 
         # 3. Construct JSON Intent (스키마에 맞게 매핑)
@@ -348,6 +369,25 @@ async def serve_grpc():
     )
     server.add_generic_rpc_handlers((generic_handler_tracking,))
     
+    # 4. TextAIService 등록 (New Goal Planner)
+    from app.protos import text_ai_pb2, text_ai_pb2_grpc
+    from app.services import planner
+    
+    class TextAIService(text_ai_pb2_grpc.TextAIServiceServicer):
+        async def GenerateSubgoals(self, request, context):
+            print(f"📝 [Planner] Generating subgoals for: {request.goal_text}")
+            subgoals = await planner.generate_subgoals(request.goal_text)
+            print(f"✅ [Planner] Result: {subgoals}")
+            return text_ai_pb2.GoalResponse(subgoals=subgoals)
+
+    text_ai_servicer = TextAIService()
+    
+    # Register purely via add_TextAIServiceServicer_to_server if using standard flow
+    # or generic handler like others. Let's use the standard way if generated code allows,
+    # but based on previous pattern, we might want generic handler if reflection is issues.
+    # However, standard way is cleaner.
+    text_ai_pb2_grpc.add_TextAIServiceServicer_to_server(text_ai_servicer, server)
+
     generic_handler = grpc.method_handlers_generic_handler(
         'jiaa.IntelligenceService', 
         rpc_method_handlers
@@ -361,6 +401,8 @@ async def serve_grpc():
     print("Services:")
     print("  - AudioService (Dev 1 → Dev 5)")
     print("  - IntelligenceService (Dev 4 → Dev 5)")
+    print("  - TrackingService (Dev 6 → Dev 5)")
+    print("  - TextAIService (Client → Dev 5)")
     print("=" * 50)
     
     await server.start()
