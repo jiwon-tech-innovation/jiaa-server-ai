@@ -8,6 +8,9 @@ Services:
 import grpc
 import grpc.aio
 import json
+from grpc_health.v1 import health
+from grpc_health.v1 import health_pb2
+from grpc_health.v1 import health_pb2_grpc
 
 from app.protos import audio_pb2, audio_pb2_grpc
 from app.services import stt, classifier, chat
@@ -337,6 +340,18 @@ async def serve_grpc():
     
     # 2. IntelligenceService 등록
     intelligence_servicer = IntelligenceService()
+    
+    # 2-1. Health Service 등록 (AWS ALB Support)
+    health_servicer = health.HealthServicer(
+        experimental_non_blocking=True,
+        experimental_thread_pool=grpc.futures.ThreadPoolExecutor(max_workers=1)
+    )
+    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+    
+    # Set Serving Status
+    health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
+    health_servicer.set("jiaa.IntelligenceService", health_pb2.HealthCheckResponse.SERVING)
+    print("✅ [gRPC] Health Service Registered (ALB Ready)")
     
     # 수동으로 서비스 핸들러 등록 (protobuf 의존성 없이)
     from grpc import unary_unary_rpc_method_handler, stream_unary_rpc_method_handler
