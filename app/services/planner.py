@@ -26,6 +26,7 @@ async def generate_subgoals(goal: str) -> List[str]:
     1. Keep tasks concise (under 10 words).
     2. Ensure logical order.
     3. Output JSON only.
+    4. Output in Korean.
     
     {format_instructions}
         """,
