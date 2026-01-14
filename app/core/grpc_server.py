@@ -82,7 +82,6 @@ class AudioService(audio_pb2_grpc.AudioServiceServicer):
         # Extract user_id from accumulated media_info or default to dev1
         user_id = final_media_info.get("user_id", "dev1")
         print(f"👤 [Audio] Chatting as User: {user_id}")
-
         # Pass running apps context if available for game detection
         user_text_with_context = user_text
         running_apps_list = []
