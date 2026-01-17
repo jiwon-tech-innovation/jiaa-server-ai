@@ -2,22 +2,23 @@ import os
 import io
 import struct
 from fastapi import UploadFile
-from openai import AsyncOpenAI
+from groq import AsyncGroq
 from app.schemas.intelligence import STTResponse
 from app.core.config import get_settings
 
 settings = get_settings()
 
-# Initialize OpenAI Client (Global)
+# Initialize Groq Client (Global)
 # Enforce 10s timeout to prevent hanging
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
+# Note: GROQ_API_KEY should be set in environment variables
+client = AsyncGroq(
+    api_key=os.getenv("GROQ_API_KEY"),
     timeout=10.0
 )
 
 async def transcribe_audio(file: UploadFile) -> STTResponse:
     """
-    HTTP Wrapper: Transcribes UploadFile using OpenAI Whisper.
+    HTTP Wrapper: Transcribes UploadFile using Groq Whisper.
     """
     try:
         file_content = await file.read()
@@ -59,11 +60,11 @@ def create_wav_header(pcm_data: bytes, sample_rate: int = 16000, channels: int =
 
 async def transcribe_bytes(file_content: bytes, file_ext: str = "mp3") -> STTResponse:
     """
-    Core Logic: Calls OpenAI Whisper API.
+    Core Logic: Calls Groq Whisper API.
     """
     try:
         # 🔧 Handle Raw PCM (Dev 1 Source)
-        # OpenAI Whisper expects a file with a header (wav, mp3, etc.)
+        # OpenAI/Groq Whisper expects a file with a header (wav, mp3, etc.)
         if file_ext in ["raw", "pcm", "mp3"]: # 'mp3' might be mislabeled raw data from some clients
              # Optimization: Check if it already has a RIFF header? 
              # For now, trust the logic: if generic name, assume raw PCM from Dev 1
@@ -82,26 +83,27 @@ async def transcribe_bytes(file_content: bytes, file_ext: str = "mp3") -> STTRes
 
         # Create a file-like object
         audio_file = io.BytesIO(file_content)
-        audio_file.name = f"voice.{file_ext}" # OpenAI needs a filename
+        audio_file.name = f"voice.{file_ext}" # OpenAI/Groq needs a filename
 
-        print(f"[STT] Calling OpenAI Whisper... ({duration_seconds:.2f}s)")
+        print(f"[STT] Calling Groq Whisper... ({duration_seconds:.2f}s)")
         
-        # Call OpenAI
+        # Call Groq
         # Prompt guide: https://platform.openai.com/docs/guides/speech-to-text/prompting
         # We include keywords relevant to the Desktop Assistant context.
         transcript = await client.audio.transcriptions.create(
-            model="whisper-1",
+            model="whisper-large-v3", # 🚀 Changed to Groq model
             file=audio_file,
             language="ko", # Force Korean as per spec
             prompt="VSCode, Chrome, Youtube, Study mode, Play mode, AI, 코딩, 개발, 유튜브, 롤, 알았어", 
-            temperature=0.0
+            temperature=0.0,
+            response_format="json"
         )
         
         transcript_text = transcript.text
-        print(f"[STT] 🎤 Received Voice: \"{transcript_text}\"")
+        print(f"[STT] 🎤 Received Voice (Groq): \"{transcript_text}\"")
         
         return STTResponse(text=transcript_text)
 
     except Exception as e:
-        print(f"❌ OpenAI Whisper Error: {e}")
+        print(f"❌ Groq Whisper Error: {e}")
         return STTResponse(text="")

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File
-from app.schemas.intelligence import ClassifyRequest, ClassifyResponse, SolveRequest, SolveResponse, STTResponse, ChatRequest, ChatResponse
+from app.schemas.intelligence import ClassifyRequest, ClassifyResponse, SolveRequest, SolveResponse, STTResponse, ChatRequest, ChatResponse, QuizResultRequest
 from app.services import classifier, solver, stt, chat
 from app.services.memory_service import memory_service
 
@@ -19,6 +19,15 @@ async def solve_error(request: SolveRequest):
     Returns: Solution Code, Comfort Message, TIL.
     """
     return await solver.solve_error(request)
+
+@router.post("/quiz/result")
+async def save_quiz_result(request: QuizResultRequest):
+    """
+    Saves the user's quiz score to memory.
+    Impacts Trust Score and Daily Report.
+    """
+    memory_service.save_quiz_result(request.topic, request.score, request.max_score)
+    return {"status": "success", "message": "Quiz result saved."}
 
 @router.post("/stt", response_model=STTResponse)
 async def speech_to_text(file: UploadFile = File(...)):

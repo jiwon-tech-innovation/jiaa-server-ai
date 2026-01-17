@@ -6,6 +6,7 @@ Services:
 - IntelligenceService: AI operations for Dev 4 (Core Decision Service)
 """
 import grpc
+from concurrent import futures
 import grpc.aio
 import json
 from grpc_health.v1 import health
@@ -350,7 +351,7 @@ async def serve_grpc():
     # 2-1. Health Service 등록 (AWS ALB Support)
     health_servicer = health.HealthServicer(
         experimental_non_blocking=True,
-        experimental_thread_pool=grpc.futures.ThreadPoolExecutor(max_workers=1)
+        experimental_thread_pool=futures.ThreadPoolExecutor(max_workers=1)
     )
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
     
@@ -381,6 +382,9 @@ async def serve_grpc():
     tracking_rpc_handlers = {
         'SendAppList': unary_unary_rpc_method_handler(
             tracking_servicer.SendAppList,
+        ),
+        'TranscribeAudio': stream_unary_rpc_method_handler(
+            tracking_servicer.TranscribeAudio,
         )
     }
     
@@ -389,6 +393,18 @@ async def serve_grpc():
         tracking_rpc_handlers
     )
     server.add_generic_rpc_handlers((generic_handler_tracking,))
+    
+    # [FIX] Also register as 'jiaa.audio.AudioService' because client uses audio.proto
+    audio_rpc_handlers = {
+        'TranscribeAudio': stream_unary_rpc_method_handler(
+            tracking_servicer.TranscribeAudio,
+        )
+    }
+    generic_handler_audio = grpc.method_handlers_generic_handler(
+        'jiaa.audio.AudioService',
+        audio_rpc_handlers
+    )
+    server.add_generic_rpc_handlers((generic_handler_audio,))
     
     # 4. TextAIService 등록 (New Goal Planner)
     from app.protos import text_ai_pb2, text_ai_pb2_grpc

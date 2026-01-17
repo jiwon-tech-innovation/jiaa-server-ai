@@ -5,8 +5,75 @@ from app.protos import tracking_pb2, tracking_pb2_grpc
 from app.core.crypto import decrypt_data_raw
 from app.services.memory_service import memory_service
 from app.core.llm import get_llm, HAIKU_MODEL_ID
+from app.services import stt, chat
+from app.schemas.intelligence import ChatRequest
+
 
 class TrackingService(tracking_pb2_grpc.TrackingServiceServicer):
+    async def TranscribeAudio(self, request_iterator, context):
+        """
+        Receives AudioStream from Client (via TrackingService), aggregates bytes, performs STT -> Chat.
+        """
+        audio_buffer = bytearray()
+        final_media_info = {}
+
+        try:
+            async for request in request_iterator:
+                audio_buffer.extend(request.audio_data)
+                
+                if request.media_info_json:
+                    try:
+                        info = json.loads(request.media_info_json)
+                        final_media_info.update(info)
+                    except:
+                        pass
+
+                if request.is_final:
+                    break
+        except Exception as e:
+            print(f"gRPC Stream Error: {e}")
+
+        # 1. STT
+        stt_response = await stt.transcribe_bytes(bytes(audio_buffer), file_ext="mp3")
+        user_text = stt_response.text
+        print(f"🗣️ [Tracking] User said: \"{user_text}\"")
+
+        if not user_text or not user_text.strip():
+            return tracking_pb2.AudioResponse(
+                transcript="(No speech detected)",
+                is_emergency=False,
+                intent="{}"
+            )
+
+        # 2. Chat
+        user_id = final_media_info.get("user_id", "dev1")
+        
+        # Context (Running Apps)
+        # Note: Client might send media_info but not full app list in AudioRequest yet (Proto v2?)
+        # For now use text as is.
+        
+        chat_request = ChatRequest(text=user_text, user_id=user_id)
+        chat_response = await chat.chat_with_persona(chat_request)
+
+        # 3. Construct Intent
+        intent_data = {
+            "text": chat_response.message,
+            "state": chat_response.judgment,
+            "type": chat_response.intent,
+            "command": chat_response.action_code,
+            "parameter": chat_response.action_detail or "",
+            "emotion": chat_response.emotion or "NORMAL"
+        }
+        
+        final_intent = json.dumps(intent_data, ensure_ascii=False)
+
+        return tracking_pb2.AudioResponse(
+            transcript=user_text,
+            is_emergency=False,
+            intent=final_intent
+        )
+
+
     async def SendAppList(self, request, context):
         try:
             apps = json.loads(request.apps_json)

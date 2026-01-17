@@ -2,12 +2,13 @@ from datetime import datetime
 from app.services.calendar_service import calendar_service
 from app.services.statistic_service import statistic_service
 from app.services.memory_service import memory_service
-from app.core.llm import get_llm, HAIKU_MODEL_ID
+from app.core.llm import get_llm, SONNET_MODEL_ID
 from langchain_core.prompts import PromptTemplate
 
 class ReportService:
     def __init__(self):
-        self.llm = get_llm(model_id=HAIKU_MODEL_ID)
+        # [User Request] Use Sonnet for higher quality reports and better Korean support
+        self.llm = get_llm(model_id=SONNET_MODEL_ID, temperature=0.7)
 
     async def generate_daily_wrapped(self, user_id: str) -> str:
         """
@@ -25,12 +26,15 @@ class ReportService:
 
         # 3. Fetch Said (Vector Memory - Daily Summary)
         # We reuse get_daily_activities from MemoryService, but it searches STM.
-        # It's close enough to "What I did/said today".
-        # Better: Search specifically for "Promise" or "Plan" keywords if we want "Said".
         said_list = memory_service.get_daily_activities()
         said_str = "\n".join(said_list)
 
-        # 4. LLM Generation
+        # 4. Fetch Quiz Results (Performance)
+        quiz_list = memory_service.get_daily_quiz_results()
+        quiz_str = "\n".join(quiz_list)
+        if not quiz_str: quiz_str = "(No quizzes taken)"
+
+        # 5. LLM Generation
         prompt = f"""
 You are "Alpine", the critical code reviewer and life coach.
 Write a "Daily Wrapped" (Daily Retrospective) for the user "Dev 1".
@@ -45,19 +49,41 @@ Write a "Daily Wrapped" (Daily Retrospective) for the user "Dev 1".
 3. [SAID] What they claimed/chatted (Chat Logs):
 {said_str}
 
-### INSTRUCTIONS
-- Compare [PLAN] vs [ACTUAL]. DO NOT trust [SAID] if it contradicts [ACTUAL].
-- Detect discrepancies: e.g., Plan="Study" but Actual="LoL".
-- Tone: Strict, Analytical, Evidence-Based. "Tsundere Meshgaki" flavor is optional here; focus on "Fact Bombing".
-- Format: Markdown.
-  - **Summary**: Grade the day (A/B/C/F).
-  - **Plan vs Actual**: Detailed comparison table or bullet points.
-  - **The Lie**: Did they lie about studying?
-  - **Action Item**: What to fix tomorrow.
+4. [PERFORMANCE] Quiz Scores:
+{quiz_str}
 
-Write the report in **Korean**.
+### INSTRUCTIONS
+- **Triangulation Analysis**: Compare [PLAN] vs [ACTUAL] vs [PERFORMANCE].
+- **Fact Check**:
+  - Did they plan to study but play games? ([PLAN] vs [ACTUAL])
+  - Did they claim to study hard but fail the quiz? ([SAID] vs [PERFORMANCE]) -> " 입만 살았군요."
+- Tone: Sharp, Analytical, Witty, slightly "Tsundere" but heavy on FACTS.
+- Format: Markdown.
+
+### OUTPUT STRUCTURE
+# 📅 Daily Report ({datetime.now().strftime("%Y-%m-%d")})
+
+## 📊 Summary Grade
+- **Grade**: (A/B/C/F)
+- **Trust Score Change**: (From Memory Service trust update)
+
+## 🔍 Plan vs Reality
+| Included | Actual | Verdict |
+|----------|--------|---------|
+| (Plan Item) | (Actual Log) | (Pass/Fail) |
+
+## 📉 Performance Review
+- (Comment on Quiz Scores vs Activity)
+
+## 🤥 The Lie Detector
+- (Did [SAID] match [ACTUAL]?)
+
+## 🚀 Action Item for Tomorrow
+- (Specific advice)
+
+**IMPORTANT: Write the ENTIRE report in Korean (한국어). Do not use English for headings.**
 """
-        response = self.llm.invoke(prompt)
+        response = await self.llm.ainvoke(prompt)
         return response.content
 
 report_service = ReportService()

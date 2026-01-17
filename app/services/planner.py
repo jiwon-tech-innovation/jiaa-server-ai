@@ -1,32 +1,49 @@
+
+from typing import List, Optional
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
-from typing import List
-from app.core.llm import get_llm, HAIKU_MODEL_ID
-from app.protos import text_ai_pb2
+from app.core.llm import get_llm, SONNET_MODEL_ID
 
+# --- Subgoal Schemas ---
 class GoalList(BaseModel):
     subgoals: List[str] = Field(description="List of actionable sub-tasks")
 
+# --- Quiz Schemas ---
+class QuizItem(BaseModel):
+    question: str = Field(description="The quiz question")
+    options: List[str] = Field(description="List of 4 options")
+    answer_idx: int = Field(description="Index of the correct answer (0-3)")
+    explanation: str = Field(description="Explanation of the answer")
+
+class QuizResponse(BaseModel):
+    quizzes: List[QuizItem] = Field(description="List of generated quizzes")
+
+# -------------------------------------------------------------------------
+# Planner Logic (Powered by Claude 3.5 Sonnet)
+# -------------------------------------------------------------------------
+
 async def generate_subgoals(goal: str) -> List[str]:
     """
-    Breaks down a high-level goal into actionable sub-goals using LLM.
+    Breaks down a high-level goal into actionable sub-goals using Claude 3.5 Sonnet.
+    Sonnet provides better reasoning for logical breakdowns.
     """
-    llm = get_llm(model_id=HAIKU_MODEL_ID, temperature=0.5)
+    # [Config] Use Sonnet for Deep Planning
+    llm = get_llm(model_id=SONNET_MODEL_ID, temperature=0.7)
     parser = PydanticOutputParser(pydantic_object=GoalList)
 
     prompt = PromptTemplate(
         template="""
-    You are an expert project planner.
-    Your task is to break down the user's high-level goal into 3-6 SMALL, ACTIONABLE sub-tasks.
+    You are an expert technical project manager.
+    Your task is to break down the user's high-level goal into 4-8 CONCRETE, ACTIONABLE sub-tasks.
     
     User Goal: "{goal}"
     
     Rules:
-    1. Keep tasks concise (under 10 words).
-    2. Ensure logical order.
-    3. Output JSON only.
-    4. Output in Korean.
+    1. **Structure**: Sequence logical steps (Setup -> Core Logic -> UI -> Deploy).
+    2. **Clarity**: Each task must be clear and under 15 words.
+    3. **Language**: Korean (한국어).
+    4. **Output**: JSON only.
     
     {format_instructions}
         """,
@@ -37,8 +54,50 @@ async def generate_subgoals(goal: str) -> List[str]:
     chain = prompt | llm | parser
 
     try:
+        print(f"🧠 [Planner] Sonnet Planning for: {goal}")
         result = await chain.ainvoke({"goal": goal})
         return result.subgoals
     except Exception as e:
         print(f"Planner Error: {e}")
-        return ["Error generating subgoals"]
+        return [f"계획 생성 실패: {str(e)}"]
+
+async def generate_quiz(topic: str, difficulty: str = "Medium") -> List[dict]:
+    """
+    Generates a technical quiz based on the topic using Claude 3.5 Sonnet.
+    Returns raw dict list for easy usage.
+    """
+    llm = get_llm(model_id=SONNET_MODEL_ID, temperature=0.5)
+    parser = PydanticOutputParser(pydantic_object=QuizResponse)
+    
+    prompt = PromptTemplate(
+        template="""
+    You are an Expert CS Tutor.
+    Create 3 {difficulty} level multiple-choice questions about "{topic}".
+    
+    Target Audience: Junior Developer.
+    Language: Korean.
+    
+    Requirements:
+    1. Questions should verify core understanding.
+    2. 4 Options per question.
+    3. Clear explanation for the correct answer.
+    
+    {format_instructions}
+        """,
+        input_variables=["topic", "difficulty"],
+        partial_variables={"format_instructions": parser.get_format_instructions()},
+    )
+    
+    chain = prompt | llm | parser
+    
+    try:
+        print(f"🧠 [Quiz] Sonnet Generating Quiz for: {topic} ({difficulty})")
+        result = await chain.ainvoke({"topic": topic, "difficulty": difficulty})
+        
+        # Convert Pydantic models to list of dicts
+        return [q.dict() for q in result.quizzes]
+        
+    except Exception as e:
+        print(f"Quiz Error: {e}")
+        return []
+

@@ -48,6 +48,12 @@ class SolveResponse(BaseModel):
     comfort_message: str  # Spec says "comfort_message"
     til_content: str      # Spec says "til_content" (Today I Learned)
 
+# Quiz
+class QuizResultRequest(BaseModel):
+    topic: str
+    score: int
+    max_score: int
+
 # STT
 class STTResponse(BaseModel):
     text: str

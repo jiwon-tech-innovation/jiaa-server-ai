@@ -65,6 +65,33 @@ class MemoryService:
         # [TRUST SCORE] Studying increases trust
         self.update_trust_score("dev1", 2)
 
+    def save_quiz_result(self, topic: str, score: int, max_score: int):
+        """
+        Saves quiz performance to STM.
+        """
+        percent = (score / max_score) * 100
+        content = f"Quiz Result: {topic} - {score}/{max_score} ({percent:.1f}%)"
+        self._save_event(
+            content=content,
+            event_type="QUIZ",
+            metadata={"topic": topic, "score": score, "max_score": max_score, "category": "STUDY"}
+        )
+        # [TRUST SCORE] High score boosts trust significantly
+        if percent >= 80:
+            self.update_trust_score("dev1", 5)
+        elif percent < 50:
+             self.update_trust_score("dev1", -2) # Penalty for poor performance despite "studying"
+
+    def _get_redis_client(self):
+        # Helper to get a direct Redis client
+        import redis
+        return redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            password=settings.REDIS_PASSWORD,
+            decode_responses=True
+        )
+
     def get_trust_score(self, user_id: str = "dev1") -> int:
         """
         Retrieves the persistent Trust Score from Redis.
@@ -72,21 +99,17 @@ class MemoryService:
         """
         try:
             key = f"user:{user_id}:trust_score"
-            # Direct Redis access from the vector store instance (a bit hacky but works for langchain Redis wrapper)
-            # Actually, standard LangChain Redis vectorstore doesn't expose .client publicly always.
-            # But we can use the same connection logic or just strict redis client.
-            # Let's use the internal client if accessible, or `get_settings` to make a new lightweight connection.
-            # Simpler: Use the `self.stm.client` if available (LangChain Redis usually has it).
+            client = self._get_redis_client()
+            val = client.get(key)
+            client.close()
             
-            # Safe Fallback: Check if client exists
-            if hasattr(self.stm, 'client'):
-                val = self.stm.client.get(key)
-                if val is None:
-                    return 100
-                return int(val)
-            else:
-                print("WARNING: Redis client not accessible on STM. Returning default 100.")
+            if val is None:
+                print(f"DEBUG: Trust Score for {user_id} is None, returning 100")
                 return 100
+            
+            score = int(float(val)) # float safe
+            print(f"DEBUG: Retrieved Trust Score for {user_id}: {score}")
+            return score
         except Exception as e:
             print(f"Trust Score Get Error: {e}")
             return 100
@@ -100,9 +123,10 @@ class MemoryService:
             new_score = max(0, min(100, current + delta))
             
             key = f"user:{user_id}:trust_score"
-            if hasattr(self.stm, 'client'):
-                self.stm.client.set(key, new_score)
-                print(f"📉 [Trust] Score Updated: {current} -> {new_score} (Delta: {delta})")
+            client = self._get_redis_client()
+            client.set(key, new_score)
+            client.close()
+            print(f"📉 [Trust] Score Updated: {current} -> {new_score} (Delta: {delta})")
             
         except Exception as e:
             print(f"Trust Score Update Error: {e}")
@@ -178,6 +202,29 @@ class MemoryService:
             return ["(오늘의 특별한 활동 기록이 없습니다. 숨쉬기 운동 정도?)"]
             
         return activities
+
+    def get_daily_quiz_results(self, date_str: str = None) -> list[str]:
+        """
+        Retrieves ONLY quiz results for the day.
+        """
+        if not date_str:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+
+        results = []
+        try:
+            # Search specifically for Quiz events
+            docs = self.stm.similarity_search("Quiz Result", k=20)
+            for doc in docs:
+                ts = doc.metadata.get("timestamp", "")
+                event_type = doc.metadata.get("event_type", "")
+                
+                if ts.startswith(date_str) and event_type == "QUIZ":
+                     results.append(f"{doc.page_content}")
+            
+            return results
+        except Exception as e:
+            print(f"Quiz Fetch Error: {e}")
+            return []
 
     async def consolidate_memory(self):
         """
