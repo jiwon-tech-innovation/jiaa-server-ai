@@ -21,19 +21,32 @@ def get_embeddings():
         model_id="amazon.titan-embed-text-v2:0"
     )
 
+class DummyVectorStore:
+    def add_documents(self, documents, **kwargs):
+        print("DEBUG: DummyVectorStore - skipping add_documents (Redis unavailable)")
+        return []
+    
+    def similarity_search(self, query, k=4, **kwargs):
+        print("DEBUG: DummyVectorStore - skipping search (Redis unavailable)")
+        return []
+
 def get_vector_store():
     """
     Returns the Redis VectorStore.
     """
-    # Construct Redis URL
-    redis_password = f":{settings.REDIS_PASSWORD}@" if settings.REDIS_PASSWORD else ""
-    redis_url = f"redis://{redis_password}{settings.REDIS_HOST}:{settings.REDIS_PORT}"
+    try:
+        # Construct Redis URL
+        redis_password = f":{settings.REDIS_PASSWORD}@" if settings.REDIS_PASSWORD else ""
+        redis_url = f"redis://{redis_password}{settings.REDIS_HOST}:{settings.REDIS_PORT}"
 
-    return Redis(
-        redis_url=redis_url,
-        index_name="jiaa_memory",
-        embedding=get_embeddings()
-    )
+        return Redis(
+            redis_url=redis_url,
+            index_name="jiaa_memory",
+            embedding=get_embeddings()
+        )
+    except Exception as e:
+        print(f"WARNING: Redis Connection Failed ({e}). Using In-Memory Dummy Store.")
+        return DummyVectorStore()
 
 def get_long_term_store():
     """
