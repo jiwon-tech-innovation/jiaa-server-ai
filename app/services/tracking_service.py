@@ -9,7 +9,12 @@ from app.services import stt, chat
 from app.schemas.intelligence import ChatRequest
 
 
-class TrackingService(tracking_pb2_grpc.TrackingServiceServicer):
+from app.protos import core_pb2, core_pb2_grpc
+
+class TrackingService(tracking_pb2_grpc.TrackingServiceServicer, core_pb2_grpc.CoreServiceServicer):
+    
+    # ... (TranscribeAudio remains same) ...
+
     async def TranscribeAudio(self, request_iterator, context):
         """
         Receives AudioStream from Client (via TrackingService), aggregates bytes, performs STT -> Chat.
@@ -21,7 +26,8 @@ class TrackingService(tracking_pb2_grpc.TrackingServiceServicer):
             async for request in request_iterator:
                 audio_buffer.extend(request.audio_data)
                 
-                if request.media_info_json:
+                # Validate media_info_json
+                if hasattr(request, 'media_info_json') and request.media_info_json:
                     try:
                         info = json.loads(request.media_info_json)
                         final_media_info.update(info)
@@ -39,6 +45,8 @@ class TrackingService(tracking_pb2_grpc.TrackingServiceServicer):
         print(f"🗣️ [Tracking] User said: \"{user_text}\"")
 
         if not user_text or not user_text.strip():
+            # Check which AudioResponse to return (Tracking vs Core)
+            # We default to Tracking's because this method is bound to TrackingService mostly
             return tracking_pb2.AudioResponse(
                 transcript="(No speech detected)",
                 is_emergency=False,
@@ -47,11 +55,6 @@ class TrackingService(tracking_pb2_grpc.TrackingServiceServicer):
 
         # 2. Chat
         user_id = final_media_info.get("user_id", "dev1")
-        
-        # Context (Running Apps)
-        # Note: Client might send media_info but not full app list in AudioRequest yet (Proto v2?)
-        # For now use text as is.
-        
         chat_request = ChatRequest(text=user_text, user_id=user_id)
         chat_response = await chat.chat_with_persona(chat_request)
 
@@ -67,116 +70,101 @@ class TrackingService(tracking_pb2_grpc.TrackingServiceServicer):
         
         final_intent = json.dumps(intent_data, ensure_ascii=False)
 
+        # Return Tracking Response (Standard)
         return tracking_pb2.AudioResponse(
             transcript=user_text,
             is_emergency=False,
             intent=final_intent
         )
 
+    async def SyncClient(self, request_iterator, context):
+        """
+        Bidirectional Stream for Client Heartbeat (CoreService).
+        Handles Game Detection & Nagging.
+        """
+        print(f"⚡ [Core] SyncClient Connected")
+        
+        SERVER_BLACKLIST = ["Overwatch", "MapleStory", "Destiny", "Battle.net", "Steam", "League of Legends", "Riot Client"]
+        
+        try:
+            async for heartbeat in request_iterator:
+                # 1. Parse Apps
+                apps = []
+                if heartbeat.apps_json:
+                    try:
+                        apps = json.loads(heartbeat.apps_json)
+                    except:
+                        pass
+                
+                # Skip detection if app list is empty
+                if not apps:
+                    continue
+
+                kill_target = ""
+                command_type = core_pb2.ServerCommand.NONE
+                payload = ""
+
+                # 2. Hybrid Game Detection
+                
+                # 2-1. Fast Blacklist
+                for app in apps:
+                    for bad in SERVER_BLACKLIST:
+                        if bad.lower() in app.lower():
+                            kill_target = app
+                            command_type = core_pb2.ServerCommand.KILL_PROCESS
+                            payload = app
+                            print(f"🚫 [Core] BLACKLIST DETECTED: {app}")
+                            break
+                    if command_type != core_pb2.ServerCommand.NONE:
+                        break
+                
+                # 2-2. AI Detection (If no blacklist hit)
+                if command_type == core_pb2.ServerCommand.NONE:
+                    try:
+                        # Throttle AI checks? (Maybe doing it every heartbeat is too much?)
+                        # But heartbeat is 1s. Let's rely on GameDetector being fast or create a cache if needed.
+                        # For now, let's call it.
+                        from app.services import game_detector
+                        from app.schemas.game import GameDetectRequest
+                        
+                        detect_req = GameDetectRequest(apps=apps)
+                        ai_result = await game_detector.detect_games(detect_req)
+                        
+                        if ai_result.is_game_detected:
+                            kill_target = ai_result.target_app
+                            command_type = core_pb2.ServerCommand.KILL_PROCESS
+                            payload = kill_target
+                            msg = ai_result.message
+                            
+                            # Also send a MESSAGE to scold user?
+                            # Current protocol only supports one command per heartbeat response? 
+                            # Or we can yield multiple.
+                            
+                            print(f"🤖 [Core] AI DETECTED GAME: {kill_target}")
+                            
+                            # Yield Message First
+                            if msg:
+                                yield core_pb2.ServerCommand(
+                                    type=core_pb2.ServerCommand.SHOW_MESSAGE,
+                                    payload=msg
+                                )
+                    except Exception as e:
+                        print(f"⚠️ [Core] AI Error: {e}")
+
+                # 3. Yield Command
+                if command_type != core_pb2.ServerCommand.NONE:
+                    yield core_pb2.ServerCommand(
+                        type=command_type,
+                        payload=payload
+                    )
+        
+        except Exception as e:
+            print(f"❌ [Core] SyncClient Disconnected: {e}")
 
     async def SendAppList(self, request, context):
-        try:
-            apps = json.loads(request.apps_json)
-            # print(f"📱 [Tracking] Received {len(apps)} apps", flush=True)
-            
-            # Server-side Supplementary Blacklist (Hybrid Logic)
-            # 클라이언트에는 없는 게임들을 여기서 잡음
-            SERVER_BLACKLIST = ["Overwatch", "MapleStory", "Destiny", "Battle.net", "Steam"]
-            
-            kill_target = ""
-            command = "NONE"
-            msg = "OK"
-            
-            # 1. Check Apps (Hybrid: Blacklist -> AI)
-            
-            # 1-1. Fast Blacklist Check
-            for app in apps:
-                for bad in SERVER_BLACKLIST:
-                    if bad.lower() in app.lower():
-                        kill_target = app
-                        command = "KILL"
-                        msg = f"서버 감지: {app} 실행이 감지되었습니다. 강제 종료합니다."
-                        print(f"🚫 [Tracking] SERVER DETECTED BLACKLIST: {app}")
-                        break
-                if command == "KILL":
-                    break
-            
-            # 1-2. AI Detection (Claude 3.5 Haiku) - If not already killed
-            if command == "NONE":
-                try:
-                    from app.services import game_detector
-                    from app.schemas.game import GameDetectRequest
-                    
-                    # AI Detect
-                    detect_req = GameDetectRequest(apps=apps)
-                    ai_result = await game_detector.detect_games(detect_req)
-                    
-                    if ai_result.is_game_detected:
-                        # AI가 게임으로 판단함
-                        kill_target = ai_result.target_app
-                        command = "KILL"
-                        msg = ai_result.message or f"AI 감지: {kill_target} 실행이 확인되었습니다."
-                        print(f"🤖 [Tracking] AI DETECTED GAME: {kill_target} (Conf: {ai_result.confidence})")
-                except Exception as e:
-                    print(f"⚠️ [Tracking] AI Detection Error: {e}")
+        # ... (Legacy Implementation or just redirect) ...
+        return tracking_pb2.AppListResponse(success=True, message="Deprecated. Use SyncClient.")
 
-            
-            # 2. Handle Clipboard & Silence (Nagging)
-            # Only trigger if NO Kill command is active (Priority: Kill > Nag)
-            if command == "NONE" and request.clipboard_payload:
-                try:
-                    # Decrypt Clipboard
-                    clipboard_text = decrypt_data_raw(
-                        request.clipboard_payload,
-                        request.clipboard_key,
-                        request.clipboard_iv,
-                        request.clipboard_tag
-                    )
-                    
-                    # Silence Check (e.g., 30 mins = 30.0)
-                    # For Demo: Use 1 minute (1.0) or even 0.5
-                    silence_min = memory_service.get_silence_duration_minutes()
-                    
-                    if silence_min > 5.0 and len(clipboard_text.strip()) > 10:
-                        print(f"🤐 [Tracking] User Silent for {silence_min:.1f}m. Context: Clipboard")
-                        
-                        # Generate Nag via LLM
-                        llm = get_llm(model_id=HAIKU_MODEL_ID, temperature=0.7)
-                        prompt = f"""
-                        You are "Alpine" (Tsundere AI). User is master ("주인님").
-                        User has been silent for {int(silence_min)} minutes.
-                        However, they just copied this text to clipboard:
-                        
-                        '''
-                        {clipboard_text}
-                        '''
-                        
-                        If this is Code/Error: Scold them for struggling alone or tease them.
-                        If this is Chat/Text: Ask who they are talking to.
-                        
-                        Keep it short (1 sentence). Start with "주인님,".
-                        Tone: Cheeky/Nagging.
-                        Language: Korean.
-                        """
-                        response = await llm.ainvoke(prompt)
-                        nag_msg = response.content.strip()
-                        
-                        # Override Command to SPEAK (Client must handle this)
-                        command = "SPEAK" 
-                        msg = nag_msg
-                        
-                        # Update interaction time to prevent spamming
-                        memory_service.update_interaction_time()
-                        
-                except Exception as e:
-                    print(f"⚠️ [Tracking] Clipboard Error: {e}")
-
-            return tracking_pb2.AppListResponse(
-                success=True,
-                message=msg,
-                command=command,
-                target_app=kill_target
-            )
-        except Exception as e:
-            print(f"❌ [Tracking] Service Error: {e}")
-            return tracking_pb2.AppListResponse(success=False, message=str(e))
+    async def ReportAnalysisResult(self, request, context):
+        print(f"📊 [Core] Analysis Report: {request.type}")
+        return core_pb2.Ack(success=True)

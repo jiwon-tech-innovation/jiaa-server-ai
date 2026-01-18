@@ -5,6 +5,7 @@ from app.core.llm import get_llm, HAIKU_MODEL_ID
 from langchain_core.prompts import PromptTemplate
 from app.core.config import get_settings
 from langchain_community.vectorstores import Redis
+from app.services.statistic_service import statistic_service
 
 settings = get_settings()
 
@@ -241,51 +242,71 @@ class MemoryService:
     async def _generate_daily_report_text(self) -> str:
         """
         Internal helper: Generates the 'Daily TIL' report string using broad search & LLM.
+        Refactored for Data Trinity: Uses InfluxDB for Ground Truth.
         """
-        # 1. Fetch recent events with broader queries
+        user_id = "user" # TODO: Pass dynamic user_id if needed, currently single user mostly
+        
+        # 1. Fetch Ground Truth from InfluxDB (Activity Timeline)
+        timeline = await statistic_service.get_daily_timeline(user_id)
+        timeline_text = "\n".join(timeline) if timeline else "No activity recorded in InfluxDB."
+
+        # 2. Fetch Quiz Logs (Data Trinity)
+        quiz_logs = await statistic_service.get_daily_quiz_logs(user_id)
+        quiz_text = ""
+        if quiz_logs:
+            quiz_text = "### Quiz Session\n"
+            for log in quiz_logs:
+                quiz_text += f"- Topic: {log['topic']}\n  Score: {log['score']}\n  Wrong Answers: {log['wrong_answers']}\n"
+        else:
+            quiz_text = "No quiz taken today."
+
+        # 3. Fetch Qualitative Context from STM (Redis)
         queries = ["User studying coding", "User playing games", "User conversation", "System violation log"]
         all_docs = []
         seen_ids = set()
 
         for q in queries:
-            docs = self.stm.similarity_search(q, k=20)
+            docs = self.stm.similarity_search(q, k=10) # Reduced k since we have Influx
             for d in docs:
                 if d.page_content not in seen_ids:
                     all_docs.append(d)
                     seen_ids.add(d.page_content)
 
-        if not all_docs:
-            return "# Daily Report\nNo significant activity recorded today."
-
-        log_text = "\n".join([f"- {d.page_content} (Meta: {d.metadata})" for d in all_docs])
+        stm_text = "\n".join([f"- {d.page_content} (Meta: {d.metadata})" for d in all_docs])
         
-        # 2. Summarize via LLM (TIL Format)
+        # 4. Summarize via LLM (TIL Format)
         llm = get_llm(model_id=HAIKU_MODEL_ID)
         prompt = f"""
         You are a Tech Blogger Bot.
-        Based on the user's activity logs below, write a **"Daily TIL (Today I Learned)"** report.
+        Write a **"Daily TIL (Today I Learned)"** report for the user.
+        
+        **Data Sources**:
+        1. **Activity Timeline** (InfluxDB): Reliable chronological log of what happened.
+        2. **Quiz Results** (InfluxDB): Exact score and wrong answers (Use this for coaching!).
+        3. **Context Fragments** (Short-Term Memory): Qualitative details of conversations.
+
+        **Timeline**:
+        {timeline_text}
+
+        **Quiz Results**:
+        {quiz_text}
+
+        **Context Memory**:
+        {stm_text}
         
         **Requirements**:
-        1. **Chronological Flow**: What did they do from start to finish?
-        2. **Honesty**: Mention if they slacked off (played games) vs studied.
-        3. **Technical Details**: If they studied coding, mention specific topics.
-        4. **Tone**: witty and slightly critical (if they played too much).
+        1. **Chronological Flow**: Based on the Timeline.
+        2. **Coaching**: If they took a quiz, analyze their wrong answers and give specific advice.
+        3. **Honesty**: Mention if they slacked off (check timeline/context).
+        4. **Tone**: witty, slightly critical but helpful. Use Markdown.
 
-        **Logs**:
-        {log_text}
-        
         **Output Format**:
         # 📅 Daily Report ({datetime.now().strftime("%Y-%m-%d")})
         ## 📝 3-Line Summary
         1. 
-        2. 
-        3. 
-
-        ## ⏱️ Timeline Analysis
-        - (Reconstruct timeline based on logs)
-
-        ## 💡 Key Learnings (or Excuses)
-        - 
+        ...
+        ## 🧠 Knowledge Gained (Quiz Analysis)
+        ...
         """
         summary = await llm.ainvoke(prompt)
         return summary.content

@@ -29,8 +29,12 @@ class ReportService:
         said_list = memory_service.get_daily_activities()
         said_str = "\n".join(said_list)
 
-        # 4. Fetch Quiz Results (Performance)
-        quiz_list = memory_service.get_daily_quiz_results()
+        # 4. Fetch Quiz Results (Performance) - Now from DB via quiz_service
+        from app.services.quiz_service import quiz_service
+        quiz_list = await quiz_service.get_daily_quiz_results(user_id)
+        # Fallback to memory_service if DB returns empty
+        if not quiz_list:
+            quiz_list = memory_service.get_daily_quiz_results()
         quiz_str = "\n".join(quiz_list)
         if not quiz_str: quiz_str = "(No quizzes taken)"
 

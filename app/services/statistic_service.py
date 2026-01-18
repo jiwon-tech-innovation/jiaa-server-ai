@@ -104,7 +104,7 @@ class StatisticService:
             bucket = settings.INFLUXDB_BUCKET
             org = settings.INFLUXDB_ORG
             
-            # Simple query: Get all points for today
+            # Flux Query: Get all user activity for today
             flux_query = f'''
             from(bucket: "{bucket}")
               |> range(start: -24h)
@@ -114,19 +114,70 @@ class StatisticService:
               |> sort(columns: ["_time"], desc: false)
             '''
             
-            tables = query_api.query(org=org, query=flux_query)
+            import asyncio
+            loop = asyncio.get_running_loop()
+            from functools import partial
+            
+            tables = await loop.run_in_executor(
+                None, 
+                partial(query_api.query, org=org, query=flux_query)
+            )
+            
             timeline = []
             for table in tables:
                 for record in table.records:
-                    # Time + Action + Category (from tag)
                     t_str = record.get_time().strftime("%H:%M")
                     val = record.get_value()
                     cat = record.values.get("category", "UNKNOWN")
+                    # Ignore QUIZ details in timeline if needed, or include them
                     timeline.append(f"[{t_str}] {val} ({cat})")
             
             return timeline
         except Exception as e:
             print(f"[StatisticService] Timeline Error: {e}")
+            return []
+
+    async def get_daily_quiz_logs(self, user_id: str) -> list[dict]:
+        """
+        Retrieves Quiz Logs for Today (Score + Wrong Answers).
+        """
+        try:
+            query_api = InfluxClientWrapper.get_query_api()
+            bucket = settings.INFLUXDB_BUCKET
+            org = settings.INFLUXDB_ORG
+            
+            # Fetch Score & Wrong Answers
+            # We need to query multiple fields
+            flux_query = f'''
+            from(bucket: "{bucket}")
+              |> range(start: -24h)
+              |> filter(fn: (r) => r["_measurement"] == "user_activity")
+              |> filter(fn: (r) => r["user_id"] == "{user_id}")
+              |> filter(fn: (r) => r["type"] == "QUIZ")
+              |> filter(fn: (r) => r["_field"] == "score" or r["_field"] == "action_detail" or r["_field"] == "wrong_answers")
+              |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+            '''
+            
+            import asyncio
+            loop = asyncio.get_running_loop()
+            from functools import partial
+            
+            tables = await loop.run_in_executor(
+                None,
+                partial(query_api.query, org=org, query=flux_query)
+            )
+            
+            logs = []
+            for table in tables:
+                for record in table.records:
+                    logs.append({
+                        "topic": record.values.get("action_detail", "Unknown Quiz"),
+                        "score": record.values.get("score", 0),
+                        "wrong_answers": record.values.get("wrong_answers", "[]")
+                    })
+            return logs
+        except Exception as e:
+            print(f"[StatisticService] Quiz Log Error: {e}")
             return []
 
 statistic_service = StatisticService()

@@ -342,8 +342,9 @@ async def serve_grpc():
     """gRPC 서버 시작 - AudioService + IntelligenceService"""
     server = grpc.aio.server()
     
-    # 1. AudioService 등록 (기존)
-    audio_pb2_grpc.add_AudioServiceServicer_to_server(AudioService(), server)
+    # 1. AudioService 등록 (기존) - REMOVED (Consolidated into TrackingService)
+    # audio_pb2_grpc.add_AudioServiceServicer_to_server(AudioService(), server)
+    print("✅ [Server] AudioService is now handled by TrackingService")
     
     # 2. IntelligenceService 등록
     intelligence_servicer = IntelligenceService()
@@ -395,16 +396,48 @@ async def serve_grpc():
     server.add_generic_rpc_handlers((generic_handler_tracking,))
     
     # [FIX] Also register as 'jiaa.audio.AudioService' because client uses audio.proto
-    audio_rpc_handlers = {
-        'TranscribeAudio': stream_unary_rpc_method_handler(
-            tracking_servicer.TranscribeAudio,
-        )
-    }
-    generic_handler_audio = grpc.method_handlers_generic_handler(
-        'jiaa.audio.AudioService',
-        audio_rpc_handlers
-    )
-    server.add_generic_rpc_handlers((generic_handler_audio,))
+    # We use an Adapter to bridge audio_pb2 types to tracking_pb2 logic
+    
+    class AudioServiceAdapter(audio_pb2_grpc.AudioServiceServicer):
+        def __init__(self, tracking_svc):
+            self.tracking = tracking_svc
+            
+        async def TranscribeAudio(self, request_iterator, context):
+            # Pass request_iterator (yielding audio_pb2.AudioRequest) directly to TrackingService.
+            # TrackingService is duck-typed enough to read .audio_data, .is_final from it.
+            
+            # Call the delegate
+            tracking_resp = await self.tracking.TranscribeAudio(request_iterator, context)
+            
+            # Convert tracking_pb2.AudioResponse -> audio_pb2.AudioResponse
+            return audio_pb2.AudioResponse(
+                transcript=tracking_resp.transcript,
+                is_emergency=tracking_resp.is_emergency,
+                intent=tracking_resp.intent
+            )
+
+    # Register the Adapter via standard generated method (handles serialization automatically)
+    audio_adapter = AudioServiceAdapter(tracking_servicer)
+    audio_pb2_grpc.add_AudioServiceServicer_to_server(audio_adapter, server)
+    print("✅ [Audio] AudioServiceAdapter Registered (Bridging Audio -> Tracking)")
+    
+    # audio_rpc_handlers = {
+    #     'TranscribeAudio': stream_unary_rpc_method_handler(
+    #         tracking_servicer.TranscribeAudio,
+    #     )
+    # }
+    # generic_handler_audio = grpc.method_handlers_generic_handler(
+    #     'jiaa.audio.AudioService',
+    #     audio_rpc_handlers
+    # )
+    # server.add_generic_rpc_handlers((generic_handler_audio,))
+    
+    # [FIX] Register CoreService for Dev 3 (Game Detection)
+    from app.protos import core_pb2_grpc
+    # tracking_servicer now implements CoreServiceServicer
+    core_pb2_grpc.add_CoreServiceServicer_to_server(tracking_servicer, server)
+    print("✅ [Core] CoreService Registered (SyncClient Ready)")
+
     
     # 4. TextAIService 등록 (New Goal Planner)
     from app.protos import text_ai_pb2, text_ai_pb2_grpc
@@ -441,11 +474,19 @@ async def serve_grpc():
     # However, standard way is cleaner.
     text_ai_pb2_grpc.add_TextAIServiceServicer_to_server(text_ai_servicer, server)
 
-    generic_handler = grpc.method_handlers_generic_handler(
-        'jiaa.IntelligenceService', 
-        rpc_method_handlers
+    # generic_handler = grpc.method_handlers_generic_handler(
+    #     'jiaa.IntelligenceService', 
+    #     rpc_method_handlers
+    # )
+    # server.add_generic_rpc_handlers((generic_handler,))
+    
+    # Register IntelligenceService handlers (Dev 4)
+    # Re-using the dictionary defined above
+    generic_handler_intel = grpc.method_handlers_generic_handler(
+         'jiaa.IntelligenceService', 
+         rpc_method_handlers
     )
-    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_generic_rpc_handlers((generic_handler_intel,))
     
     # 5. [CRITICAL] Standard Health Check Service for AWS ALB
     health_servicer = health.HealthServicer(
