@@ -109,11 +109,16 @@ Now respond in the format above (spoken text first, then [INTENT], then JSON):
                     
                     # Yield text chunks periodically (every ~50 chars or on natural breaks)
                     # Look for natural break points: periods, commas, exclamation marks
-                    break_points = [".", "!", "?", ",", "~", "♡"]
+                    break_points = [".", ",", "~", "♡", "!", "?", "\n"]
                     for bp in break_points:
                         if bp in text_buffer:
                             idx = text_buffer.rfind(bp)
-                            if idx > 10:  # Minimum chunk size
+                            
+                            # [Optimization] Immediate yield for strong delimiters (!, ?, ♡, \n)
+                            # Allow short phrases for exclamations (e.g. "주인님!") to reduce latency
+                            min_chunk_size = 2 if bp in ["!", "?", "♡", "\n"] else 10
+                            
+                            if idx >= min_chunk_size:  
                                 to_yield = text_buffer[:idx + 1]
                                 text_buffer = text_buffer[idx + 1:]
                                 yield (to_yield.strip(), False, {"emotion": "NORMAL", "chunk_index": chunk_count})

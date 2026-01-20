@@ -461,10 +461,38 @@ async def serve_grpc():
                 message=chat_res.message,
                 intent=chat_res.intent,
                 action_code=chat_res.action_code,
-                action_detail=chat_res.action_detail or "",
-                emotion=chat_res.emotion or "NORMAL",
+                action_detail=chat_res.action_detail,
+                emotion=chat_res.emotion,
                 judgment=chat_res.judgment
             )
+
+        async def GenerateQuiz(self, request, context):
+            print(f"🧠 [Quiz] Generating Quiz: {request.topic} ({request.difficulty})")
+            
+            # Call planner.generate_quiz
+            # Note: generate_quiz returns List[dict] (SubgoalQuiz dictionaries)
+            subgoal_quiz_dicts = await planner.generate_quiz(request.topic, request.difficulty)
+            
+            pb_items = []
+            for sg in subgoal_quiz_dicts:
+                # Map nested quizzes
+                pb_quizzes = []
+                for q in sg["quizzes"]:
+                    pb_quizzes.append(text_ai_pb2.QuizItem(
+                        question=q["question"],
+                        options=q["options"],
+                        answer=q["answer"], # String answer
+                        explanation=q["explanation"]
+                    ))
+                
+                # Create SubgoalQuiz message
+                pb_items.append(text_ai_pb2.SubgoalQuiz(
+                    subgoal=sg["subgoal"],
+                    quizzes=pb_quizzes
+                ))
+            
+            print(f"✅ [Quiz] Generated {len(pb_items)} subgoal groups")
+            return text_ai_pb2.QuizResponse(items=pb_items)
 
     text_ai_servicer = TextAIService()
     

@@ -7,10 +7,11 @@ import os
 from datetime import datetime, timedelta
 
 # Hardcoded credentials recovered from jiaa-influxdb pod
+# Hardcoded credentials recovered from jiaa-influxdb pod
 token = "CHANGE_ME_INFLU_TOKEN"
 bucket = "sensor_data"
 org = "jiaa"
-url = "http://jiaa-influxdb:8086"
+url = "http://localhost:8086" # Modified for local testing via port-forward
 
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -50,7 +51,7 @@ def insert_test_data():
             .tag("user_id", user_id) \
             .tag("category", act["category"]) \
             .field("action_detail", act["detail"]) \
-            .field("duration_min", act["duration"]) \
+            .field("duration_min", float(act["duration"])) \
             .time(act["time"])
         write_api.write(bucket=bucket, org=org, record=point)
         print(f"  ✅ Activity: {act['detail']}")

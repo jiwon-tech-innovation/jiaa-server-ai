@@ -264,6 +264,7 @@ class TrackingService(tracking_pb2_grpc.TrackingServiceServicer, core_pb2_grpc.C
                                     type=core_pb2.ServerCommand.SHOW_MESSAGE,
                                     payload=msg
                                 )
+
                     except Exception as e:
                         print(f"⚠️ [Core] AI Error: {e}")
 
