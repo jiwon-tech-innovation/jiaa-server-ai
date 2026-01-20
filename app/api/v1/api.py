@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import intelligence, prediction, review, memory, game, quiz, stats
+from app.api.v1.endpoints import intelligence, prediction, review, memory, game, quiz, stats, event
 
 api_router = APIRouter()
 api_router.include_router(intelligence.router, tags=["intelligence"])
@@ -9,3 +9,4 @@ api_router.include_router(memory.router, prefix="/memory", tags=["memory"])
 api_router.include_router(game.router, tags=["game"])
 api_router.include_router(quiz.router, prefix="/quiz", tags=["quiz"])
 api_router.include_router(stats.router, prefix="/stats", tags=["stats"])
+api_router.include_router(event.router, tags=["events"])
