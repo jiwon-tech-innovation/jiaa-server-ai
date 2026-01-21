@@ -73,6 +73,10 @@ async def transcribe_bytes(file_content: bytes, file_ext: str = "mp3") -> STTRes
     """
     Core Logic: Calls Groq Whisper API.
     """
+    if client is None:
+        print("❌ STT Error: Groq client not initialized. Please set GROQ_API_KEY environment variable.")
+        return STTResponse(text="")
+    
     try:
         # 🔧 Handle Raw PCM (Dev 1 Source)
         # OpenAI/Groq Whisper expects a file with a header (wav, mp3, etc.)
