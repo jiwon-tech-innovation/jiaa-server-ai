@@ -12,6 +12,12 @@ def get_bedrock_client():
     """
     Returns a boto3 client for bedrock-runtime.
     """
+    import os
+    # Prevent usage of stale session tokens from environment if using long-term keys
+    if settings.AWS_ACCESS_KEY_ID and settings.AWS_ACCESS_KEY_ID.startswith("AKIA"):
+        os.environ.pop("AWS_SESSION_TOKEN", None)
+        os.environ.pop("AWS_SECURITY_TOKEN", None)
+
     return boto3.client(
         service_name="bedrock-runtime",
         region_name=settings.BEDROCK_REGION,
