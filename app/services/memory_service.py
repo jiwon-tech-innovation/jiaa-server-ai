@@ -105,7 +105,7 @@ class MemoryService:
             client.close()
             
             if val is None:
-                # [DEFAULT] New users start at 50 (Mesugaki Mode)
+                # [DEFAULT] New users start at 50 (Neutral Mode)
                 print(f"DEBUG: Trust Score for {user_id} is None, returning 50")
                 return 50
             

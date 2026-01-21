@@ -21,7 +21,7 @@ async def test_game_flow_excuse_then_surrender():
         "judgment": "PLAY",
         "action_code": "NONE",
         "action_detail": "",
-        "message": "또 한 판만이세요? 안 됩니다, 주인님."
+        "message": "또 한 판만이세요? 안 됩니다, 사용자님."
     })
 
     # Second turn: surrender ("알았어..")

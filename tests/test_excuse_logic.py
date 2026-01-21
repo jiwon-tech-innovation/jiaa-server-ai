@@ -53,7 +53,7 @@ async def test_chat_with_persona_study_praise():
         "judgment": "STUDY",
         "action_code": "NONE",
         "action_detail": "",
-        "message": "흥, 오늘은 좀 열심히 하시네요? 계속 그렇게만 하라고요, 허접♡"
+        "message": "오늘은 열심히 하시네요. 계속 이렇게 진행해보세요."
     })
 
     mock_llm = AsyncMock()
@@ -72,7 +72,7 @@ async def test_chat_with_persona_study_praise():
         response = await chat_with_persona(request)
 
         assert response.judgment == "STUDY"
-        assert "허접" in response.message
+        assert "열심히" in response.message or "진행" in response.message
 
 @pytest.mark.asyncio
 async def test_chat_with_persona_invalid_json():

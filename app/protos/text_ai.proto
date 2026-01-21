@@ -26,7 +26,7 @@ message GoalResponse {
 }
 
 message ChatRequest {
-  string text = 1;      // e.g. "주인님이 핸드폰을 보고 계십니다"
+  string text = 1;      // e.g. "사용자님이 핸드폰을 보고 계십니다"
   string client_id = 2; // Optional
 }
 

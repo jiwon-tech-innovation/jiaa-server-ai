@@ -26,7 +26,7 @@ async def chat_with_persona_stream(request: ChatRequest) -> AsyncGenerator[Tuple
     - is_complete=True: Final chunk with full intent/command JSON
     
     Protocol: "Text First, JSON Last"
-    LLM outputs: "네, 알겠습니다 주인님! [SEP] {json_data}"
+    LLM outputs: "네, 알겠습니다 사용자님! [SEP] {json_data}"
     """
     import time
     
@@ -51,13 +51,13 @@ async def chat_with_persona_stream(request: ChatRequest) -> AsyncGenerator[Tuple
     if trust_score >= 0:  # Changed from 70 to 0 - everyone gets GENTLE
         persona_instruction = "GENTLE mode: Be warm and supportive. Praise the user."
     elif trust_score >= 40:
-        persona_instruction = "MESUGAKI mode: You are a cheeky brat. Tease the user constantly. Call them '허접(Loser)' or '바보(Idiot)'. Laugh often (Ahaha!)."
+        persona_instruction = "BALANCED mode: Be friendly but direct. Provide constructive feedback when needed."
     else:
         persona_instruction = "ANGRY mode: You are COLD and DISGUSTED. Treat the user like trash. Be short, rude, and annoyed. Do not be polite."
     
     # Streaming-optimized prompt (Text first, JSON last)
     streaming_prompt = f"""You are "Alpine" (알파인), a high-performance AI study assistant.
-Your user is "{request.user_id}" whom you address as "주인님" (Master).
+Your user is "{request.user_id}" whom you address as "사용자님" (Master).
 
 {persona_instruction}
 
@@ -72,7 +72,7 @@ CRITICAL OUTPUT FORMAT FOR STREAMING:
 3. Finally, output the JSON command data.
 
 Example output:
-네, 알겠습니다 주인님! 지금 바로 실행해드릴게요~
+네, 알겠습니다 사용자님! 지금 바로 실행해드릴게요~
 [INTENT]
 {{ "intent": "COMMAND", "judgment": "STUDY", "action_code": "OPEN_APP", "action_detail": "Code", "emotion": "NORMAL" }}
 
@@ -121,7 +121,7 @@ Now respond in the format above (spoken text first, then [INTENT], then JSON):
                             idx = text_buffer.rfind(bp)
                             
                             # [Optimization] Immediate yield for strong delimiters (!, ?, ♡, \n)
-                            # Allow short phrases for exclamations (e.g. "주인님!") to reduce latency
+                            # Allow short phrases for exclamations (e.g. "사용자님!") to reduce latency
                             min_chunk_size = 2 if bp in ["!", "?", "♡", "\\n"] else 10
                             
                             if idx >= min_chunk_size:  
@@ -241,9 +241,9 @@ async def chat_with_persona(request: ChatRequest) -> ChatResponse:
         judgment_guide = "Judgment: GOOD."
     elif trust_score >= 40:
         trust_level = "MID"
-        persona_name = "MESUGAKI_BRIGHT"
-        persona_instruction = "MESUGAKI mode: You are a cheeky brat. Tease the user constantly. Call them '허접(Loser)' or '바보(Idiot)'. Laugh often (Ahaha!)."
-        persona_tone = "Cheeky, playful, shorter sentences. Laugh often. 'Hehe, stupid master~'"
+        persona_name = "BALANCED"
+        persona_instruction = "BALANCED mode: Be friendly but direct. Provide constructive feedback when needed."
+        persona_tone = "Friendly and direct. Keep it concise. 'Let's stay focused!'"
         judgment_guide = "Judgment: OKAY."
     else:
         trust_level = "LOW"
@@ -292,7 +292,7 @@ Persona: {persona_name}
     
     final_prompt = f"""
 You are "Alpine" (알파인), a high-performance AI study assistant.
-Your user is **"{request.user_id}"** whom you address as **"주인님"** (Master).
+Your user is **"{request.user_id}"** whom you address as **"사용자님"** (Master).
 
 {persona_instruction}
 
@@ -369,10 +369,10 @@ Logic:
      - **NEUTRAL**: Just talking. -> **action_code: NONE**.
 
 2. **Persona Response (Message) Examples**:
-   - **High Trust (Play)**: "저랑 노는거죠? 딴 년이랑 노는거 아니죠? ...게임 같은거 하면 죽여버릴거에요♡ (농담)" (emotion: LOVE/HEART)
-   - **Low Trust (Play)**: "돼지 주제에 게임? 꿈 깨세요. 가서 사료나 먹어." (emotion: ANGRY/DISGUST)
-   - **Low Trust (Kill App)**: "이제야 끄네? 머리가 나쁘면 손발이라도 빨라야지." (action_code: KILL_APP, emotion: ANGRY)
-   - **Note Gen**: "정리해줬잖아. 읽을 줄은 알지? 글씨 못 읽는거 아니지?" (action_code: GENERATE_NOTE)
+   - **High Trust (Play)**: "저와 함께 시간을 보내신다는 거죠? 다만 공부 시간에는 집중해주세요." (emotion: NORMAL)
+   - **Low Trust (Play)**: "현재 학습 목표를 먼저 달성하시는 게 좋겠습니다." (emotion: NORMAL)
+   - **Low Trust (Kill App)**: "프로세스를 종료하겠습니다." (action_code: KILL_APP, emotion: NORMAL)
+   - **Note Gen**: "요청하신 내용을 정리해드렸습니다." (action_code: GENERATE_NOTE)
 
 3. **Output Constraints (CRITICAL)**:
    - **Output ONLY valid JSON**.
@@ -495,11 +495,11 @@ START THE RESPONSE WITH '{{' AND END WITH '}}'.
 
     except Exception as e:
         print(f"Chat Error: {e}")
-        # 파싱 실패 시 사용자에게 에러 대신 츤데레 멘트 반환
+        # 파싱 실패 시 사용자에게 에러 대신 정중한 멘트 반환
         return ChatResponse(
             intent="CHAT",
             judgment="NEUTRAL",
             action_code="NONE",
-            message="뭐라고요? 목소리가 너무 작아서 못들었어요~ 바보 주인님♡",
+            message="죄송합니다. 다시 한 번 말씀해주시겠어요?",
             emotion="ANGRY"
         )

@@ -23,7 +23,7 @@ Respond in Korean, naturally.
 Output format: First say something, then output [INTENT] on a new line, then output JSON.
 
 Example:
-네, 알겠습니다 주인님!
+네, 알겠습니다 사용자님!
 [INTENT]
 {"intent": "CHAT", "emotion": "NORMAL"}
 
